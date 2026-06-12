@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "brazilsouth"
+    },
+    "environmentName": {
+      "value": "poc"
+    },
+    "workloadName": {
+      "value": "obo-sql"
+    },
+    "containerImage": {
+      "value": "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
+    },
+    "sqlEntraAdminObjectId": {
+      "value": "<entra-admin-object-id>"
+    },
+    "sqlEntraAdminLogin": {
+      "value": "<entra-admin-display-name-or-upn>"
+    },
+    "sqlAdministratorPassword": {
+      "value": "<do-not-commit-real-password>"
+    },
+    "keyVaultCryptoUserObjectIds": {
+      "value": [
+        "<sender-or-receiver-object-id>"
+      ]
+    },
+    "allowAzureServicesToSql": {
+      "value": false
+    }
+  }
+}
+

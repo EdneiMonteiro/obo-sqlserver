@@ -1,0 +1,24 @@
+[
+  {
+    "name": "Gamera",
+    "subscriptionId": "<map-after-preflight>",
+    "currency": "USD",
+    "forecast": 84.05,
+    "limitUsd": 150
+  },
+  {
+    "name": "Gojira",
+    "subscriptionId": "<map-after-preflight>",
+    "currency": "BRL",
+    "forecast": 401.60,
+    "limitUsd": 150
+  },
+  {
+    "name": "Potka",
+    "subscriptionId": "<map-after-preflight>",
+    "currency": "USD",
+    "forecast": 99.81,
+    "limitUsd": 150
+  }
+]
+

@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "ms-dotnettools.csdevkit",
+    "ms-dotnettools.csharp",
+    "ms-azuretools.vscode-bicep",
+    "ms-azuretools.vscode-azurecontainerapps",
+    "ms-vscode.powershell",
+    "github.vscode-github-actions"
+  ]
+}
+

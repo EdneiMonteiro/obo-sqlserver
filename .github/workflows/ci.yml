@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  dotnet:
+    name: .NET build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore OboSqlServer.sln
+
+      - name: Build
+        run: dotnet build OboSqlServer.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test OboSqlServer.sln --configuration Release --no-build
+
+  bicep:
+    name: Bicep validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Bicep
+        uses: azure/cli@v2
+        with:
+          inlineScript: az bicep build --file infra/bicep/main.bicep
+

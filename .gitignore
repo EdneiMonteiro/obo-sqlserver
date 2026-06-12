@@ -1,0 +1,44 @@
+# Build outputs
+bin/
+obj/
+TestResults/
+coverage/
+*.trx
+*.coverage
+*.coveragexml
+
+# .NET local files
+*.user
+*.suo
+*.rsuser
+.vs/
+
+# Azure / local config
+local.settings.json
+appsettings.Development.local.json
+*.publishsettings
+*.pubxml.user
+
+# Secrets and generated parameters
+*.secrets.json
+*.parameters.local.json
+*.tfvars
+*.env
+.env.*
+!*.example
+
+# IaC state/output
+.terraform/
+terraform.tfstate*
+*.tfplan
+infra/bicep/main.json
+infra/**/bicepconfig.local.json
+
+# IDE / OS
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+.DS_Store
+Thumbs.db
