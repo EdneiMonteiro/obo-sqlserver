@@ -41,7 +41,7 @@ $tenantSubscriptions | Select-Object name,id,tenantId,state,isDefault | Format-T
 
 if (Test-Path -LiteralPath $ForecastsPath) {
     Write-Host ""
-    Write-Host "Forecast headroom using $ForecastsPath:"
+    Write-Host "Forecast headroom using $($ForecastsPath):"
     $forecasts = Get-Content -Raw -LiteralPath $ForecastsPath | ConvertFrom-Json
     $ranked = foreach ($item in $forecasts) {
         if ($item.subscriptionId -like "<*") {
