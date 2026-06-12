@@ -4,10 +4,12 @@
 
 | Ameaca | Controle |
 |--------|----------|
-| SQL Admin consulta tabela diretamente | Always Encrypted + CMK no Key Vault |
+| SQL Admin consulta tabela diretamente sem AE habilitado | Always Encrypted + CMK no Key Vault — driver nao decripta, query bruta retorna ciphertext |
+| SQL Admin habilita AE no client e tenta ler | RBAC no Key Vault — sem `Key Vault Crypto User` o unwrap da CEK falha com 403 ForbiddenByRbac (validado em docs/separation-of-duties.md) |
 | Usuario nao autorizado chama API | ACL por `tid` + `oid` |
 | Logs vazam conteudo | API nao registra token, payload ou plaintext |
-| Identidade sem Key Vault tenta descriptografar | RBAC minimo no Key Vault |
+| Identidade sem Key Vault tenta descriptografar | RBAC minimo no Key Vault (validado) |
+| Sender tenta ler ou Reader tenta escrever | Grants SQL distintos (INSERT vs SELECT) enforcados (validado) |
 
 ## Ameacas nao cobertas
 
@@ -20,5 +22,15 @@
 
 ## Recomendacao
 
-Use esta PoC para validar o requisito "SQL Admin nao le plaintext". Para validar "nem backend nem operador le plaintext", implemente criptografia no cliente final.
+Use esta PoC para validar o requisito "SQL Admin nao le plaintext" — comprovado em [docs/separation-of-duties.md](separation-of-duties.md) com a fase E1 (com e sem KV access). Para validar "nem backend nem operador le plaintext", implemente criptografia no cliente final.
+
+### Modelo de papeis recomendado para producao
+
+| Persona | SQL grants | KV Crypto User |
+|---|---|---|
+| Sender | `INSERT` em `Documents` | Sim |
+| Receiver | `SELECT` em `Documents` | Sim |
+| SQL Admin | `sysadmin`/`db_owner` | **Nao** |
+| Operador app | nenhum | **Nao** |
+| Auditor | `SELECT` em `DocumentAccessAudit` | Nao |
 

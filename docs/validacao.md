@@ -44,3 +44,20 @@ Invoke-Sqlcmd -ConnectionString "..." -AccessToken $sqlToken -Query "SELECT * FR
 Invoke-Sqlcmd -ConnectionString "..." -AccessToken $sqlToken -Query "SELECT TOP 20 * FROM dbo.DocumentAccessAudit ORDER BY CreatedAt DESC"
 ```
 
+## Validacao adicional: separacao de duties
+
+A validacao acima usa um unico usuario (Entra admin + receiver + operador) para simplificar.
+
+Para provar que **AE+AKV bloqueia o SQL admin** quando ele nao tem `Key Vault Crypto User`, e que grants distintos INSERT/SELECT funcionam com AE ativo, veja [docs/separation-of-duties.md](separation-of-duties.md).
+
+Resumo dos testes adicionais:
+
+| # | Identidade | Ação | Resultado |
+|---|---|---|---|
+| S1 | sp-poc-sender (INSERT only) | INSERT com AE+KV | PASS |
+| S2 | sp-poc-sender | SELECT | `SELECT permission denied` |
+| R1 | sp-poc-reader (SELECT only) | SELECT com AE+KV | PASS (plaintext) |
+| R2 | sp-poc-reader | INSERT | `INSERT permission denied` |
+| E1 (com KV)  | SQL admin **com** KV Crypto User | SELECT | le plaintext — separacao quebrada |
+| E1 (sem KV)  | SQL admin **sem** KV Crypto User | SELECT | `Status 403 ForbiddenByRbac` no unwrap — nao le |
+

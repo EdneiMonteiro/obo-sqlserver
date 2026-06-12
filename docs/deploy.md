@@ -198,7 +198,30 @@ Saida esperada: 7/7 PASS.
 | T6 | SQL Admin SUBSTRING na coluna criptografada | erro "Encryption scheme mismatch" |
 | T7 | Auditoria gravada | linhas em `dbo.DocumentAccessAudit` |
 
-## 10. Cleanup
+## 10. Validacao adicional: separacao de duties (opcional)
+
+Os 7 testes acima usam um unico usuario. Para provar que **Always Encrypted + AKV bloqueia o SQL admin sem KV access** e que grants distintos INSERT vs SELECT funcionam com AE ativo, rode:
+
+```powershell
+.\scripts\setup-separation-of-duties.ps1 `
+  -SubscriptionId "<sub-id>" `
+  -ResourceGroupName "rg-obo-sql-poc-brs-001" `
+  -SqlServerFqdn "<sql>.database.windows.net" `
+  -DatabaseName "sqldb-obo-sql-poc" `
+  -KeyVaultName "<kv-name>" `
+  -TenantId "<tenant-id>" `
+  -SecretsOutputPath ".\poc-sp-secrets.local.json"
+
+.\scripts\test-separation-of-duties.ps1 `
+  -SqlFqdn "<sql>.database.windows.net" `
+  -Database "sqldb-obo-sql-poc" `
+  -TenantId "<tenant-id>" `
+  -SecretsFile ".\poc-sp-secrets.local.json"
+```
+
+Detalhes em [separation-of-duties.md](separation-of-duties.md).
+
+## 11. Cleanup
 
 Remove o resource group inteiro.
 
@@ -208,10 +231,11 @@ Remove o resource group inteiro.
   -ResourceGroupName "rg-obo-sql-poc-brs-001"
 ```
 
-Tambem remova manualmente:
+Também remova manualmente:
 
-- App registration (Microsoft Entra > App registrations > obo-sqlserver-poc-api > Delete).
-- Arquivos locais com secrets (`client-secret.local.txt`, `main.parameters.local.json`).
+- App registration principal (Microsoft Entra > App registrations > obo-sqlserver-poc-api > Delete).
+- Service principals do teste de separacao (se rodou): `sp-poc-sender`, `sp-poc-reader`.
+- Arquivos locais com secrets (`client-secret.local.txt`, `main.parameters.local.json`, `poc-sp-secrets.local.json`).
 
 > Key Vault tem `softDeleteRetentionInDays = 7` + `enablePurgeProtection = true`. Apos delete, o nome fica reservado por 7 dias. Para reuso imediato, escolha outro `workloadName` no Bicep.
 
@@ -259,6 +283,8 @@ Tambem remova manualmente:
 | `preflight-azure.ps1` | Mapeia subscriptions, calcula headroom, valida providers e regioes |
 | `deploy-infra.ps1` | `az deployment group create` com Bicep |
 | `setup-always-encrypted.ps1` | Cria CMK metadata, embrulha CEK via AKV provider, cria tabelas |
+| `setup-separation-of-duties.ps1` | Cria SPs sender/reader com KV access e grants SQL distintos |
+| `test-separation-of-duties.ps1` | Roda S1/S2/R1/R2/E1 demonstrando enforcement e papel do AKV |
 | `create-app-registration.ps1` | Cria app Entra, scope, permissoes, pre-autoriza Azure CLI, gera secret |
 | `build-and-push-image.ps1` | Cria ACR se nao existir e roda `az acr build` |
 | `update-container-app.ps1` | AcrPull + registry + secret + env vars + imagem nova |
