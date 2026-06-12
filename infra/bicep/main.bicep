@@ -18,13 +18,6 @@ param sqlEntraAdminObjectId string
 @description('Microsoft Entra display name/login for the Azure SQL administrator.')
 param sqlEntraAdminLogin string
 
-@secure()
-@description('Temporary SQL administrator password required by Azure SQL server creation. SQL auth can be disabled after Entra-only auth validation.')
-param sqlAdministratorPassword string
-
-@description('Temporary SQL administrator login required by Azure SQL server creation.')
-param sqlAdministratorLogin string = 'sqladminpoc'
-
 @description('Object ids that should receive Key Vault Crypto User on the PoC vault.')
 param keyVaultCryptoUserObjectIds array = []
 
@@ -32,16 +25,28 @@ param keyVaultCryptoUserObjectIds array = []
 param allowAzureServicesToSql bool = false
 
 var suffix = toLower(uniqueString(subscription().id, resourceGroup().id, workloadName, environmentName))
-var shortLocation = replace(toLower(location), ' ', '')
-var logName = 'log-${workloadName}-${environmentName}-${shortLocation}-001'
-var identityName = 'id-${workloadName}-api-${environmentName}-${shortLocation}-001'
-var caeName = 'cae-${workloadName}-${environmentName}-${shortLocation}-001'
-var appName = 'ca-${workloadName}-api-${environmentName}-${shortLocation}-001'
+var regionCodes = {
+  brazilsouth: 'brs'
+  brazilsoutheast: 'brse'
+  eastus: 'eus'
+  eastus2: 'eus2'
+  westus: 'wus'
+  westus2: 'wus2'
+  westus3: 'wus3'
+  centralus: 'cus'
+  northeurope: 'neu'
+  westeurope: 'weu'
+}
+var regionCode = contains(regionCodes, toLower(location)) ? regionCodes[toLower(location)] : substring(replace(toLower(location), ' ', ''), 0, 3)
+var logName = 'log-${workloadName}-${environmentName}-${regionCode}'
+var identityName = 'id-${workloadName}-api-${environmentName}-${regionCode}'
+var caeName = 'cae-${workloadName}-${environmentName}-${regionCode}'
+var appName = 'ca-${workloadName}-api-${environmentName}-${regionCode}'
 var sqlServerName = 'sql-${workloadName}-${environmentName}-${suffix}'
 var sqlDatabaseName = 'sqldb-${workloadName}-${environmentName}'
 var keyVaultName = take('kv-${replace(workloadName, '-', '')}-${environmentName}-${suffix}', 24)
 var keyName = 'cmk-documents'
-var sqlScopeHost = environment().suffixes.sqlServerHostname
+var sqlScopeHost = substring(environment().suffixes.sqlServerHostname, 1)
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: logName
@@ -50,7 +55,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
     sku: {
       name: 'PerGB2018'
     }
-    retentionInDays: 7
+    retentionInDays: 30
   }
 }
 
@@ -107,8 +112,6 @@ resource sqlServer 'Microsoft.Sql/servers@2023-08-01-preview' = {
   name: sqlServerName
   location: location
   properties: {
-    administratorLogin: sqlAdministratorLogin
-    administratorLoginPassword: sqlAdministratorPassword
     minimalTlsVersion: '1.2'
     publicNetworkAccess: 'Enabled'
     administrators: {

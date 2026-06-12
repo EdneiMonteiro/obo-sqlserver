@@ -20,9 +20,6 @@
     "sqlEntraAdminLogin": {
       "value": "<entra-admin-display-name-or-upn>"
     },
-    "sqlAdministratorPassword": {
-      "value": "<do-not-commit-real-password>"
-    },
     "keyVaultCryptoUserObjectIds": {
       "value": [
         "<sender-or-receiver-object-id>"
