@@ -60,13 +60,15 @@ Se o requisito for **E2EE estrito**, a criptografia e a descriptografia devem ac
 
 ## Pre-requisitos
 
-- Azure CLI autenticado (`az login --tenant <tenant-id>`)
-- GitHub CLI autenticado (`gh auth login`)
+- Azure CLI 2.60+ autenticado (`az login --tenant <entra-tenant-id>`)
+- GitHub CLI autenticado (`gh auth login`) — opcional
 - .NET 8 SDK
-- Azure CLI Bicep (`az bicep version`)
-- Permissao para criar recursos no tenant/subscription alvo
+- Azure CLI Bicep 0.30+ (`az bicep version`)
+- PowerShell 7+
+- Modulo SqlServer 22+ (`Install-Module SqlServer -Scope CurrentUser`)
+- Permissao para criar recursos na subscription alvo
 - Permissao para criar App Registration no Microsoft Entra ID
-- Acesso a uma subscription com budget suficiente para a PoC
+- Permissao para conceder admin consent no tenant
 
 Tenant alvo: definir antes de rodar o preflight (nao versionar no repositorio).
 
@@ -86,51 +88,54 @@ No VS Code:
 2. Use `Terminal > Run Task` para `dotnet: restore`, `dotnet: build`, `dotnet: test` ou `api: run`.
 3. Use `Run and Debug > API: debug` para depurar a API.
 
-### Provisionar e executar
+### Provisionar e validar (resumo)
 
-1. Execute o preflight:
+O guia completo passo a passo esta em [docs/deploy.md](docs/deploy.md). Resumo dos comandos:
 
-   ```powershell
-   .\scripts\preflight-azure.ps1 -TenantId "<entra-tenant-id>" -ForecastsPath ".\scripts\forecasts.example.json"
-   ```
+```powershell
+# 1. Preflight
+.\scripts\preflight-azure.ps1 -TenantId "<entra-tenant-id>" -ForecastsPath ".\forecasts.local.json"
 
-2. Ajuste os parametros de infraestrutura:
+# 2. Deploy infra
+Copy-Item .\infra\bicep\main.parameters.json.example .\infra\bicep\main.parameters.local.json
+.\scripts\deploy-infra.ps1 -SubscriptionId "<sub-id>" -ResourceGroupName "rg-obo-sql-poc-brs-001" `
+  -ParametersFile ".\infra\bicep\main.parameters.local.json"
 
-   ```powershell
-   Copy-Item .\infra\bicep\main.parameters.json.example .\infra\bicep\main.parameters.local.json
-   ```
+# 3. Liberar IP do operador no SQL (one-off)
+$myIp = (Invoke-RestMethod 'https://api.ipify.org?format=json').ip
+az sql server firewall-rule create -g rg-obo-sql-poc-brs-001 -s <sql-server> `
+  -n allow-operator-ip --start-ip-address $myIp --end-ip-address $myIp
 
-3. Faça deploy da infraestrutura:
+# 4. Always Encrypted (CMK + CEK + tabelas)
+.\scripts\setup-always-encrypted.ps1 -SqlServerFqdn "<sql>.database.windows.net" `
+  -DatabaseName "sqldb-obo-sql-poc" -KeyVaultKeyUrl "<keyVaultKeyId>"
 
-   ```powershell
-   .\scripts\deploy-infra.ps1 -SubscriptionId "<subscription-id>" -Location "brazilsouth" -ParametersFile ".\infra\bicep\main.parameters.local.json"
-   ```
+# 5. App Registration (scope, perms, secret)
+.\scripts\create-app-registration.ps1 -TenantId "<tenant>" `
+  -SecretOutputPath ".\client-secret.local.txt"
 
-4. Configure Always Encrypted:
+# 6. Build e push da imagem
+.\scripts\build-and-push-image.ps1 -SubscriptionId "<sub-id>" `
+  -ResourceGroupName "rg-obo-sql-poc-brs-001" -AcrName "cr<random>" -Tag "1.0.0"
 
-   ```powershell
-   .\scripts\initialize-always-encrypted.ps1 -SqlServerName "<server>" -DatabaseName "sqldb-obo-sql-poc" -KeyVaultName "<kv-name>" -KeyName "cmk-documents"
-   ```
+# 7. Atualizar Container App
+.\scripts\update-container-app.ps1 -SubscriptionId "<sub-id>" `
+  -ResourceGroupName "rg-obo-sql-poc-brs-001" `
+  -ContainerAppName "ca-obo-sql-api-poc-brs" `
+  -ManagedIdentityName "id-obo-sql-api-poc-brs" `
+  -AcrName "cr<random>" `
+  -Image "<acr>.azurecr.io/obo-sqlserver-api:1.0.0" `
+  -TenantId "<tenant>" -ApiClientId "<client-id>" `
+  -ClientSecretFile ".\client-secret.local.txt"
 
-5. Configure a API:
+# 8. Validacao end-to-end (7 testes)
+.\scripts\validate-poc.ps1 -BaseUrl "https://<app-url>" `
+  -ApiClientId "<client-id>" `
+  -SqlServerFqdn "<sql>.database.windows.net" -DatabaseName "sqldb-obo-sql-poc"
 
-   ```powershell
-   cd .\src\api
-   dotnet restore
-   dotnet run
-   ```
-
-6. Execute as validacoes:
-
-   ```powershell
-   .\scripts\validate-poc.ps1 `
-     -BaseUrl "https://<app-url>" `
-     -ApiClientId "<api-client-id>" `
-     -SqlServerFqdn "<sql-server>.database.windows.net" `
-     -DatabaseName "sqldb-obo-sql-poc"
-   ```
-
-   Resultado esperado: 7 testes PASS — sender escreve, receiver autorizado le, non-receiver recebe 403, anonimo recebe 401, SQL Admin nao consegue ler plaintext, auditoria gravada.
+# 9. Cleanup
+.\scripts\cleanup.ps1 -SubscriptionId "<sub-id>" -ResourceGroupName "rg-obo-sql-poc-brs-001"
+```
 
 ## Arquitetura
 
@@ -167,11 +172,12 @@ sequenceDiagram
 
 | Documento | Descricao |
 |-----------|-----------|
+| [docs/deploy.md](docs/deploy.md) | Guia end-to-end de deploy, configuracao, validacao e troubleshooting |
 | [docs/arquitetura.md](docs/arquitetura.md) | Arquitetura e principais decisoes |
 | [docs/fluxo-logico.md](docs/fluxo-logico.md) | Fluxo detalhado de escrita e leitura |
 | [docs/componentes-azure.md](docs/componentes-azure.md) | Componentes Azure e escolhas de SKU |
 | [docs/modelo-ameacas.md](docs/modelo-ameacas.md) | Ameacas cobertas, nao cobertas e riscos residuais |
-| [docs/validacao.md](docs/validacao.md) | Roteiro de validacao da PoC |
+| [docs/validacao.md](docs/validacao.md) | Criterios de validacao e resultados |
 | [docs/publicacao.md](docs/publicacao.md) | Checklist antes de tornar o repositorio publico |
 
 ## Suporte

@@ -6,7 +6,7 @@ param(
     [string] $Location = "brazilsouth",
 
     [Parameter(Mandatory = $false)]
-    [string] $ResourceGroupName = "rg-obo-sql-poc-brazilsouth-001",
+    [string] $ResourceGroupName = "rg-obo-sql-poc-brs-001",
 
     [Parameter(Mandatory = $false)]
     [string] $ParametersFile = ".\infra\bicep\main.parameters.local.json"

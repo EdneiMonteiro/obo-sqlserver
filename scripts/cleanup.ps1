@@ -3,7 +3,7 @@ param(
     [string] $SubscriptionId,
 
     [Parameter(Mandatory = $false)]
-    [string] $ResourceGroupName = "rg-obo-sql-poc-brazilsouth-001"
+    [string] $ResourceGroupName = "rg-obo-sql-poc-brs-001"
 )
 
 $ErrorActionPreference = "Stop"
