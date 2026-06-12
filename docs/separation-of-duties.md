@@ -91,7 +91,7 @@ Este teste prova que **enquanto o admin SQL tiver acesso ao Key Vault, ele le tu
 Removi `Key Vault Crypto User` do ednei e repeti E1:
 
 ```powershell
-az role assignment delete --assignee 0ea15536-... --role 'Key Vault Crypto User' `
+az role assignment delete --assignee <admin-object-id> --role 'Key Vault Crypto User' `
   --scope /subscriptions/<sub>/.../vaults/kv-obosql-poc-*
 ```
 
@@ -100,7 +100,7 @@ Resultado:
 ```
 RESULT (admin BLOCKED):
 Caller is not authorized to perform action on resource.
-Caller: appid=04b07795-8ddb-461a-bbee-02f9e1bf7b46;oid=0ea15536-...
+Caller: appid=04b07795-8ddb-461a-bbee-02f9e1bf7b46;oid=<admin-object-id>
 Action: 'Microsoft.KeyVault/vaults/keys/unwrap/action'
 Resource: '.../keys/cmk-documents'
 Status: 403 (Forbidden)
