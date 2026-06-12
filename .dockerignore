@@ -1,0 +1,15 @@
+# Keep image lean
+bin/
+obj/
+TestResults/
+.vscode/
+.git/
+.github/
+docs/
+infra/
+sql/
+scripts/
+src/api.Tests/
+*.md
+plan/
+session-state/

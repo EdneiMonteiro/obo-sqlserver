@@ -123,8 +123,14 @@ No VS Code:
 6. Execute as validacoes:
 
    ```powershell
-   .\scripts\validate-poc.ps1 -BaseUrl "https://<app-url>"
+   .\scripts\validate-poc.ps1 `
+     -BaseUrl "https://<app-url>" `
+     -ApiClientId "<api-client-id>" `
+     -SqlServerFqdn "<sql-server>.database.windows.net" `
+     -DatabaseName "sqldb-obo-sql-poc"
    ```
+
+   Resultado esperado: 7 testes PASS — sender escreve, receiver autorizado le, non-receiver recebe 403, anonimo recebe 401, SQL Admin nao consegue ler plaintext, auditoria gravada.
 
 ## Arquitetura
 

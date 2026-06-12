@@ -70,7 +70,7 @@ public sealed class DocumentRepository(SqlConnectionFactory connectionFactory)
             reader.GetGuid(4),
             reader.GetString(5),
             reader.GetString(6),
-            reader.GetDateTimeOffset(7));
+            new DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc)));
     }
 
     public async Task<byte[]?> GetPayloadAsync(Guid documentId, CancellationToken cancellationToken)
