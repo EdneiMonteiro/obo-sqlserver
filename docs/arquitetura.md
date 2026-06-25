@@ -28,9 +28,12 @@ flowchart LR
     SQL --> Audit[(DocumentAccessAudit)]
 ```
 
+## Diagrama de classes
+
+O diagrama de classes e a referencia de classes/metodos estao em [classes-e-metodos.md](classes-e-metodos.md).
+
 ## Limites conhecidos
 
 - Owner/User Access Administrator no Azure ainda pode alterar RBAC se nao houver segregacao administrativa real.
 - ACA pode ver plaintext em memoria durante operacoes autorizadas.
 - Endpoints publicos restritos reduzem custo da PoC, mas producao deve usar Private Endpoint, Private DNS e VNet integration.
-

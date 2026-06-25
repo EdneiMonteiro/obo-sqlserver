@@ -175,6 +175,7 @@ sequenceDiagram
 | [docs/deploy.md](docs/deploy.md) | Guia end-to-end de deploy, configuracao, validacao e troubleshooting |
 | [docs/separation-of-duties.md](docs/separation-of-duties.md) | Prova reproduzivel de que AE+AKV bloqueia o SQL admin sem KV access |
 | [docs/arquitetura.md](docs/arquitetura.md) | Arquitetura e principais decisoes |
+| [docs/classes-e-metodos.md](docs/classes-e-metodos.md) | Diagrama de classes e referencia das classes/metodos da API |
 | [docs/fluxo-logico.md](docs/fluxo-logico.md) | Fluxo detalhado de escrita e leitura |
 | [docs/componentes-azure.md](docs/componentes-azure.md) | Componentes Azure e escolhas de SKU |
 | [docs/modelo-ameacas.md](docs/modelo-ameacas.md) | Ameacas cobertas, nao cobertas e riscos residuais |
