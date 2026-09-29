@@ -1,144 +1,95 @@
-# Segregacao de tarefas (Separation of Duties)
+# Segregação de acesso: SQL e Key Vault
 
-Documento que prova, com testes reproduziveis, que **Always Encrypted + Azure Key Vault e a fronteira real que protege o plaintext do administrador SQL**, e que grants SQL diferentes (INSERT vs SELECT) sao enforcaveis em paralelo, mesmo com criptografia ativa.
+Os testes opcionais usam quatro identidades em Jobs no AKS para verificar
+permissões SQL e acesso à chave. São conexões diretas aos recursos.
+O [E2E OBO](validacao.md) é executado no navegador.
 
-## Contexto
+## Identidades de teste
 
-A PoC original (validacao em [docs/validacao.md](validacao.md)) rodava como um unico usuario (`ednei@live.com`) que acumulava 3 papeis:
+Os testes usam identidades separadas para comparar acesso com e sem chave,
+sem alterar os privilégios da conta do operador.
 
-- SQL Entra admin
-- Receptor com Key Vault Crypto User
-- Operador da subscription
-
-Isso e suficiente para demonstrar OBO + criptografia, mas nao prova que o admin SQL nao consegue ler plaintext, ja que o mesmo usuario tinha acesso ao Key Vault.
-
-Este teste resolve isso usando **duas identidades distintas** (service principals) com permissoes minimas, depois compara com o admin SQL com e sem acesso ao Key Vault.
-
-## Setup
-
-### Identidades
-
-Dois service principals:
-
-- `sp-poc-sender` — INSERT only
-- `sp-poc-reader` — SELECT only
-
-Ambos tem **Key Vault Crypto User** no `kv-obosql-poc-*` (necessario para o driver Always Encrypted fazer unwrap/wrap da CEK).
-
-### Grants SQL
-
-Contained users no banco:
-
-```sql
-CREATE USER [sp-poc-sender] FROM EXTERNAL PROVIDER;
-CREATE USER [sp-poc-reader] FROM EXTERNAL PROVIDER;
-
-GRANT INSERT ON dbo.Documents           TO [sp-poc-sender];
-GRANT INSERT ON dbo.DocumentAccessAudit TO [sp-poc-sender];
-
-GRANT SELECT ON dbo.Documents           TO [sp-poc-reader];
-GRANT INSERT ON dbo.DocumentAccessAudit TO [sp-poc-reader];
-
--- Necessario para Always Encrypted client-side
-GRANT VIEW ANY COLUMN MASTER KEY DEFINITION     TO [sp-poc-sender];
-GRANT VIEW ANY COLUMN ENCRYPTION KEY DEFINITION TO [sp-poc-sender];
-GRANT VIEW ANY COLUMN MASTER KEY DEFINITION     TO [sp-poc-reader];
-GRANT VIEW ANY COLUMN ENCRYPTION KEY DEFINITION TO [sp-poc-reader];
-```
-
-> Sem `VIEW ANY COLUMN MASTER KEY DEFINITION` o driver falha com `view any column encryption key definition permission denied` mesmo em INSERT, porque ele precisa ler a metadata para encriptar parametros.
-
-## Execucao
-
-```powershell
-.\scripts\setup-separation-of-duties.ps1 `
-  -SubscriptionId "<sub-id>" `
-  -ResourceGroupName "rg-obo-sql-poc-brs-001" `
-  -SqlServerFqdn "<sql>.database.windows.net" `
-  -DatabaseName "sqldb-obo-sql-poc" `
-  -KeyVaultName "<kv-name>" `
-  -TenantId "<tenant-id>" `
-  -SecretsOutputPath ".\poc-sp-secrets.local.json"
-
-.\scripts\test-separation-of-duties.ps1 `
-  -SqlFqdn "<sql>.database.windows.net" `
-  -Database "sqldb-obo-sql-poc" `
-  -TenantId "<tenant-id>" `
-  -SecretsFile ".\poc-sp-secrets.local.json"
-```
-
-## Testes
-
-### Fase 1: separacao funciona
-
-| # | Identidade | Ação | Esperado | Resultado real |
-|---|---|---|---|---|
-| **S1** | sp-poc-sender | `INSERT INTO Documents` com AE+KV | PASS, payload encriptado client-side | **PASS** |
-| **S2** | sp-poc-sender | `SELECT ... FROM Documents` | FAIL `SELECT permission denied` | **PASS** |
-| **R1** | sp-poc-reader | `SELECT ... FROM Documents` com AE+KV | PASS, plaintext decriptado via AKV unwrap | **PASS** |
-| **R2** | sp-poc-reader | `INSERT INTO Documents` | FAIL `INSERT permission denied` | **PASS** |
-
-### Fase 2: admin SQL com KV Crypto User
-
-| # | Identidade | Ação | Esperado | Resultado real |
-|---|---|---|---|---|
-| **E1** | `ednei@live.com` (SQL admin + KV Crypto User) | `SELECT ... FROM Documents` com AE+KV | PASS, le plaintext | **PASS** — admin leu o conteudo |
-
-Este teste prova que **enquanto o admin SQL tiver acesso ao Key Vault, ele le tudo**. Acumular papeis quebra a separacao.
-
-### Fase 3: admin SQL sem KV Crypto User
-
-Removi `Key Vault Crypto User` do ednei e repeti E1:
-
-```powershell
-az role assignment delete --assignee <admin-object-id> --role 'Key Vault Crypto User' `
-  --scope /subscriptions/<sub>/.../vaults/kv-obosql-poc-*
-```
-
-Resultado:
-
-```
-RESULT (admin BLOCKED):
-Caller is not authorized to perform action on resource.
-Caller: appid=04b07795-8ddb-461a-bbee-02f9e1bf7b46;oid=<admin-object-id>
-Action: 'Microsoft.KeyVault/vaults/keys/unwrap/action'
-Resource: '.../keys/cmk-documents'
-Status: 403 (Forbidden)
-ErrorCode: ForbiddenByRbac
-```
-
-O admin SQL continua sendo sysadmin do banco e pode rodar `SELECT` ilimitado, mas o driver Always Encrypted **nao consegue desembrulhar a CEK**, entao a coluna `EncryptedPayload` chega como bytes inuteis. Sem KV unwrap, sem plaintext.
-
-## Conclusao
-
-Esta PoC valida tres afirmacoes:
-
-1. **Separacao de duties via grants funciona com AE.** INSERT/SELECT distintos sao enforcados normalmente; o driver de criptografia coexiste sem conflitos.
-2. **AKV RBAC e o controle de acesso real para plaintext.** Sem `Microsoft.KeyVault/vaults/keys/unwrap/action`, nem o sysadmin do SQL le os dados.
-3. **Acumular papeis (SQL admin + KV Crypto User) quebra a separacao.** Para producao, segregue:
-   - SQL admins **sem** Key Vault Crypto User
-   - Quem precisa ler dados (receivers, ETL) com KV Crypto User mas **sem** SQL admin
-   - Quem opera a app (deploy, observabilidade) sem nem um nem outro
-
-## Modelo de papeis recomendado
-
-| Persona | SQL grants | KV Crypto User | Vê plaintext |
+| Ator | Usuário SQL | SQL | Key Vault |
 |---|---|---|---|
-| Sender (cliente A) | `INSERT` em `Documents` | Sim | Sim, na escrita (sua propria) |
-| Receiver (cliente B) | `SELECT` em `Documents` | Sim | Sim, na leitura (sua propria) |
-| SQL Admin | `sysadmin` / `db_owner` | **Nao** | Nao — vê ciphertext |
-| Operador app (CI/CD, SRE) | nenhum | **Nao** | Nao |
-| Auditor | `SELECT` em `DocumentAccessAudit` | Nao | Nao — auditoria nao tem payload |
+| Sender | `test-sender` | INSERT Documents/Audit + metadata AE | Crypto User |
+| Reader | `test-reader` | SELECT Documents, UPDATE(ReadAt), INSERT Audit + metadata AE | Crypto User |
+| Admin com chave | `test-admin-with-key` | db_owner | Crypto User |
+| Admin sem chave | `test-admin-without-key` | db_owner | Nenhuma atribuicao de chave no template |
 
-## Limites desta prova
+`validation.bicep` cria managed identities e federações; o modo `setup-validation`
+de `src\operations` cria os usuários contidos. Nenhuma dessas etapas e chamada
+por `deploy-aks.ps1` ou pelo modo funcional `bootstrap`.
+Para apps/managed identities, o SID SQL e a representacao binaria do
+**client ID**. O object ID e usado nos role assignments Azure e nas ACLs dos
+documentos, não como SID desses usuários SQL.
 
-- A app em Container Apps continua sendo trusted compute. Quem compromete o pod com o usuario logado dentro pode ver plaintext em memoria. Para fechar isso, criptografia tem que rolar no cliente final (E2EE estrito).
-- Owners da subscription podem reverter o RBAC do Key Vault. Governance/Defender for Cloud devem alertar em mudancas.
-- Sysadmins de Microsoft Entra podem criar service principals novos. Conditional Access + Privileged Identity Management mitigam.
+O reader recebe UPDATE em `ReadAt` porque a API marca a data da leitura e grava
+um evento de auditoria.
 
-## Scripts relacionados
+## Execução
 
-| Script | Funcao |
-|---|---|
-| `scripts/setup-separation-of-duties.ps1` | Cria SPs, secrets, KV roles e contained users no SQL com grants |
-| `scripts/test-separation-of-duties.ps1` | Roda S1, S2, R1, R2, E1 e imprime tabela de resultados |
+Com o deploy pronto e acesso administrativo autorizado ao AKS:
+
+```powershell
+.\scripts\setup-validation.ps1 -SubscriptionId "<subscription-id>" `
+  -StatePath .\.local\aks\deployment.local.json
+.\scripts\test-aks.ps1 -SubscriptionId "<subscription-id>" `
+  -StatePath .\.local\aks\deployment.local.json -IncludeSegregation
+```
+
+O setup executa what-if e exige permissões para criar identidades, RBAC e
+grants SQL. `validation.local.json` só é marcado pronto depois de concluir o Job.
+`-IncludeSegregation` exige esse estado. Sem o switch, o script faz smoke tests.
+
+Cada rodada usa um ID e payload sintéticos. Os quatro Jobs são executados em
+sequência, em processos separados. O payload não é impresso nos logs.
+
+## Resultados dos testes
+
+Os controles passaram no Azure em 23/09/2026 e em uma repetição sem republicação.
+A separação posterior do setup/teardown foi testada localmente.
+
+| Teste | Ação | Resultado exigido e observado |
+|---|---|---|
+| S1 | Sender grava fixture com AE | INSERT permitido |
+| S2 | Sender consulta Documents | SQL 229, permissão SELECT negada |
+| R1 | Reader le o ID exato criado por S1 | Bytes identicos ao fixture |
+| R2 | Reader tenta inserir | SQL 229, permissão INSERT negada |
+| E1 | db_owner com chave le o mesmo fixture | Bytes identicos: controle positivo |
+| E2 | db_owner sem chave faz SELECT bruto e depois AE | Raw retorna ciphertext; unwrap falha com 403/ForbiddenByRbac |
+
+E2 primeiro confirma `IS_ROLEMEMBER('db_owner')=1`. A conexão raw tem Always
+Encrypted desabilitado; a conexão AE recebe provider Key Vault proprio.
+Falhas de login, DNS, rede ou query fazem o teste falhar.
+
+## Limitações
+
+- A ACL por destinatário **não** e Row-Level Security. Reader com SELECT direto
+  e chave pode ler outras linhas; o `tid`/`oid` e verificado pela API.
+- Os privilégios da conta que provisionou o ambiente permanecem inalterados.
+- Comprometimento de BFF/API, cluster ou máquina administrativa pode expor tokens/plaintext.
+- Revogação de uma chave não apaga CEKs/plaintext previamente obtidos ou caches.
+  Os Jobs separados evitam compartilhar um cache de CEK entre os controles.
+
+## Remover a validação sem remover a aplicação
+
+```powershell
+.\scripts\remove-validation.ps1 -SubscriptionId "<subscription-id>" `
+  -StatePath .\.local\aks\deployment.local.json -WhatIf
+.\scripts\remove-validation.ps1 -SubscriptionId "<subscription-id>" `
+  -StatePath .\.local\aks\deployment.local.json
+```
+
+O teardown confere IDs, SIDs, tags e escopos antes de remover os usuários SQL,
+Jobs, ServiceAccounts, role assignments e MIs. Marca o estado como não pronto
+antes da limpeza e pode ser repetido após falha parcial.
+Os registros sintéticos permanecem no SQL. As identidades não expiram sozinhas.
+
+## Artefatos e legado
+
+Arquivos: `infra\bicep\validation.bicep`, `src\operations\Program.cs`,
+`scripts\setup-validation.ps1`, `scripts\remove-validation.ps1`,
+`scripts\aks-common.ps1`, `scripts\test-aks.ps1`.
+
+Os scripts de [ACA](legacy/aca.md) usam dois service principals com secrets e
+a identidade CLI para E1. Suas consultas TOP não selecionam o ID exato da rodada.

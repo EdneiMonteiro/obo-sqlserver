@@ -1,3 +1,10 @@
+<#
+.SYNOPSIS
+Legacy ACA/CLI smoke tests. Not proof of the current BFF flow or strict Key Vault isolation.
+Use the live browser suite and test-aks.ps1 for AKS.
+.LINK
+../docs/legacy/aca.md
+#>
 param(
     [Parameter(Mandatory = $true)] [string] $BaseUrl,
     [Parameter(Mandatory = $true)] [string] $ApiClientId,
@@ -7,15 +14,15 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot\azure-common.ps1"
+Initialize-AzureContext -TenantId $TenantId
 
-if ($TenantId) { az account show --query tenantId -o tsv | Out-Null }
-
-$me = az ad signed-in-user show --only-show-errors -o json | ConvertFrom-Json
+$me = Invoke-Az ad signed-in-user show -o json | ConvertFrom-Json
 $myOid = $me.id
-$myTid = (az account show --query tenantId -o tsv)
+$myTid = (Invoke-Az account show --query tenantId -o tsv)
 $otherOid = [guid]::NewGuid().ToString()
 
-$token = az account get-access-token --resource "api://$ApiClientId" --query accessToken -o tsv --only-show-errors
+$token = Invoke-Az account get-access-token --resource "api://$ApiClientId" --query accessToken -o tsv
 if (-not $token) { throw "Failed to acquire token for api://$ApiClientId. Ensure Azure CLI is pre-authorized." }
 
 $plainA = "[A] Document for receiver=me at $(Get-Date -Format o)"
@@ -68,7 +75,7 @@ Write-Host "status=$($r.StatusCode)"
 $results['T5 anonymous 401'] = ($r.StatusCode -eq 401)
 
 Write-Host "=== T6: SQL admin direct SELECT on encrypted column (expected to fail or return only ciphertext) ==="
-$sqlToken = az account get-access-token --resource 'https://database.windows.net' --query accessToken -o tsv --only-show-errors
+$sqlToken = Invoke-Az account get-access-token --resource 'https://database.windows.net' --query accessToken -o tsv
 $cs = "Server=tcp:$SqlServerFqdn,1433;Database=$DatabaseName;Encrypt=True;TrustServerCertificate=False;"
 $sqlExposesPlain = $true
 try {

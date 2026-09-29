@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": { "value": "brazilsouth" },
+    "workloadName": { "value": "obosql" },
+    "kubernetesVersion": { "value": "1.35.8" },
+    "istioRevision": { "value": "asm-1-30" },
+    "operatorCidrs": { "value": ["<approved-egress-ip>/32"] },
+    "operatorObjectId": { "value": "<operator-object-id>" },
+    "sqlAdminLogin": { "value": "<operator-display-name-or-upn>" },
+    "bffPrincipalId": { "value": "<bff-service-principal-object-id>" },
+    "cryptoUserObjectIds": { "value": ["<authorized-user-object-id>"] },
+    "nodeCount": { "value": 1 },
+    "vmSize": { "value": "Standard_D4s_v5" }
+  }
+}

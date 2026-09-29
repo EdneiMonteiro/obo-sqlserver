@@ -13,15 +13,7 @@ public sealed class DocumentService(
 
     public async Task<CreateDocumentResponse> CreateAsync(CreateDocumentRequest request, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.FileName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.ContentType);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.PayloadBase64);
-
-        var payload = Convert.FromBase64String(request.PayloadBase64);
-        if (payload.Length > _maxDocumentBytes)
-        {
-            throw new InvalidOperationException($"Document exceeds the configured limit of {_maxDocumentBytes} bytes.");
-        }
+        var payload = DocumentValidation.Decode(request, _maxDocumentBytes);
 
         var sender = currentUserAccessor.GetRequiredUser();
         var documentId = Guid.NewGuid();
@@ -75,4 +67,3 @@ public sealed class DocumentService(
         return value is Guid correlationId ? correlationId : Guid.NewGuid();
     }
 }
-

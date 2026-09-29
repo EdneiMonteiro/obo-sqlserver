@@ -1,210 +1,155 @@
-# OBO SQL Server — Azure SQL Always Encrypted PoC
+# Lab OBO com AKS, BFF e Azure SQL
 
 [![ORCID](https://img.shields.io/badge/ORCID-0009--0006--0765--4201-A6CE39?logo=orcid&logoColor=white)](https://orcid.org/0009-0006-0765-4201)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Azure](https://img.shields.io/badge/Cloud-Azure-0078D4?logo=microsoftazure&logoColor=white)](#)
-[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](#)
-[![Security](https://img.shields.io/badge/Security-Always%20Encrypted-2E7D32)](#)
+[![Azure](https://img.shields.io/badge/Azure-AKS%20%2B%20Istio-0078D4?logo=microsoftazure&logoColor=white)](docs/arquitetura.md)
+[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](OboSqlServer.sln)
+[![Security](https://img.shields.io/badge/Security-Always%20Encrypted-2E7D32)](docs/modelo-ameacas.md)
 [![Last commit](https://img.shields.io/github/last-commit/EdneiMonteiro/obo-sqlserver)](https://github.com/EdneiMonteiro/obo-sqlserver/commits)
 
-## Visao Geral
+## Objetivo
 
-Este repositorio contem uma prova de conceito (PoC) para validar acesso delegado com OAuth2 On-Behalf-Of (OBO) entre uma API em Azure Container Apps, Azure SQL Database e Azure Key Vault.
+Lab de envio e leitura de documentos com autenticação Entra e tokens delegados
+obtidos por OAuth2 On-Behalf-Of. O payload é cifrado pelo driver SQL com Always
+Encrypted. A chave mestra fica no Azure Key Vault.
 
-O objetivo e demonstrar como armazenar documentos sensiveis em Azure SQL usando criptografia de coluna com Always Encrypted, mantendo o material criptografico fora do banco em Azure Key Vault, de forma que um administrador SQL sem permissao no Key Vault nao consiga ler plaintext.
+A SPA é armazenada em Blob privado e servida pelo BFF. BFF e API .NET 8 rodam
+no AKS com Istio. O navegador usa cookie de sessão; access e refresh tokens
+ficam no servidor.
 
-Este projeto foi criado para aprendizado, avaliacao tecnica e experimentacao.
+Uso em laboratório. Consulte as [limitações](docs/modelo-ameacas.md) e o
+[aviso legal](DISCLAIMER.md) antes de usar o código em produção.
 
-## Aviso Importante
+## Apresentação para o cliente
 
-Este repositorio contem **codigo de exemplo e nao e destinado para uso em producao**.
+Abra a [apresentação HTML](docs/apresentacao.html) no navegador. Ela contém os
+slides, diagramas e documentos completos, sem depender de servidor ou conexão.
+[Instruções de geração](docs/apresentacao.md).
 
-Antes de utilizar qualquer parte deste projeto em um ambiente produtivo ou critico, revise, valide, proteja e adapte o codigo conforme os requisitos da sua organizacao, incluindo:
-
-- Seguranca
-- Escalabilidade
-- Confiabilidade
-- Monitoramento
-- Observabilidade
-- Custos
-- Conformidade
-- Privacidade / LGPD
-
-Leia tambem:
-
-- [DISCLAIMER.md](./DISCLAIMER.md)
-- [SUPPORT.md](./SUPPORT.md)
-
-## O que este exemplo demonstra
-
-- Login de usuario com Microsoft Entra ID
-- Fluxo OAuth2 On-Behalf-Of para Azure SQL
-- Acesso delegado a Azure Key Vault para Always Encrypted
-- Azure SQL com dados sensiveis criptografados em coluna
-- Autorizacao por documento usando `tid` + `oid` do token Entra
-- API .NET 8 Minimal API rodando em Azure Container Apps
-- Infraestrutura como codigo com Bicep
-- Scripts de preflight, deploy, validacao e cleanup
-- Documentacao explicita do limite entre near-E2EE e E2EE estrito
-
-## Near-E2EE vs E2EE estrito
-
-Esta PoC valida um modelo **near-E2EE**:
-
-- O SQL Admin nao deve conseguir ler plaintext.
-- A chave mestra fica no Azure Key Vault.
-- A aplicacao usa a identidade delegada do usuario para acessar SQL e Key Vault.
-- A aplicacao ainda e trusted compute e pode ver plaintext em memoria durante operacoes autorizadas.
-
-Se o requisito for **E2EE estrito**, a criptografia e a descriptografia devem acontecer no cliente final, e o backend deve armazenar apenas ciphertext e metadados.
-
-## Pre-requisitos
-
-- Azure CLI 2.60+ autenticado (`az login --tenant <entra-tenant-id>`)
-- GitHub CLI autenticado (`gh auth login`) — opcional
-- .NET 8 SDK
-- Azure CLI Bicep 0.30+ (`az bicep version`)
-- PowerShell 7+
-- Modulo SqlServer 22+ (`Install-Module SqlServer -Scope CurrentUser`)
-- Permissao para criar recursos na subscription alvo
-- Permissao para criar App Registration no Microsoft Entra ID
-- Permissao para conceder admin consent no tenant
-
-Tenant alvo: definir antes de rodar o preflight (nao versionar no repositorio).
-
-## Como iniciar
-
-### Editar no VS Code
-
-Sim. O repositorio inclui configuracao em `.vscode/` com extensoes recomendadas, tarefas de restore/build/test/run e launch para debug da API.
-
-```powershell
-code .
-```
-
-No VS Code:
-
-1. Instale as extensoes recomendadas quando solicitado.
-2. Use `Terminal > Run Task` para `dotnet: restore`, `dotnet: build`, `dotnet: test` ou `api: run`.
-3. Use `Run and Debug > API: debug` para depurar a API.
-
-### Provisionar e validar (resumo)
-
-O guia completo passo a passo esta em [docs/deploy.md](docs/deploy.md). Resumo dos comandos:
-
-```powershell
-# 1. Preflight
-.\scripts\preflight-azure.ps1 -TenantId "<entra-tenant-id>" -ForecastsPath ".\forecasts.local.json"
-
-# 2. Deploy infra
-Copy-Item .\infra\bicep\main.parameters.json.example .\infra\bicep\main.parameters.local.json
-.\scripts\deploy-infra.ps1 -SubscriptionId "<sub-id>" -ResourceGroupName "rg-obo-sql-poc-brs-001" `
-  -ParametersFile ".\infra\bicep\main.parameters.local.json"
-
-# 3. Liberar IP do operador no SQL (one-off)
-$myIp = (Invoke-RestMethod 'https://api.ipify.org?format=json').ip
-az sql server firewall-rule create -g rg-obo-sql-poc-brs-001 -s <sql-server> `
-  -n allow-operator-ip --start-ip-address $myIp --end-ip-address $myIp
-
-# 4. Always Encrypted (CMK + CEK + tabelas)
-.\scripts\setup-always-encrypted.ps1 -SqlServerFqdn "<sql>.database.windows.net" `
-  -DatabaseName "sqldb-obo-sql-poc" -KeyVaultKeyUrl "<keyVaultKeyId>"
-
-# 5. App Registration (scope, perms, secret)
-.\scripts\create-app-registration.ps1 -TenantId "<tenant>" `
-  -SecretOutputPath ".\client-secret.local.txt"
-
-# 6. Build e push da imagem
-.\scripts\build-and-push-image.ps1 -SubscriptionId "<sub-id>" `
-  -ResourceGroupName "rg-obo-sql-poc-brs-001" -AcrName "cr<random>" -Tag "1.0.0"
-
-# 7. Atualizar Container App
-.\scripts\update-container-app.ps1 -SubscriptionId "<sub-id>" `
-  -ResourceGroupName "rg-obo-sql-poc-brs-001" `
-  -ContainerAppName "ca-obo-sql-api-poc-brs" `
-  -ManagedIdentityName "id-obo-sql-api-poc-brs" `
-  -AcrName "cr<random>" `
-  -Image "<acr>.azurecr.io/obo-sqlserver-api:1.0.0" `
-  -TenantId "<tenant>" -ApiClientId "<client-id>" `
-  -ClientSecretFile ".\client-secret.local.txt"
-
-# 8. Validacao end-to-end (7 testes)
-.\scripts\validate-poc.ps1 -BaseUrl "https://<app-url>" `
-  -ApiClientId "<client-id>" `
-  -SqlServerFqdn "<sql>.database.windows.net" -DatabaseName "sqldb-obo-sql-poc"
-
-# 9. Cleanup
-.\scripts\cleanup.ps1 -SubscriptionId "<sub-id>" -ResourceGroupName "rg-obo-sql-poc-brs-001"
-```
-
-## Arquitetura
+## Arquitetura principal
 
 ```mermaid
-sequenceDiagram
-    participant Sender as Sender Client
-    participant App as Container App API
-    participant Entra as Microsoft Entra ID
-    participant KV as Azure Key Vault
-    participant SQL as Azure SQL Database
-    participant Receiver as Receiver Client
-
-    Sender->>Entra: Login OAuth2
-    Sender->>App: POST /documents com bearer token
-    App->>Entra: OBO token para SQL/KV
-    App->>KV: unwrap/acesso CMK via Always Encrypted
-    App->>SQL: INSERT ciphertext + ACL
-    Receiver->>Entra: Login OAuth2
-    Receiver->>App: GET /documents/{id}
-    App->>SQL: Verifica ACL por tid/oid
-    App->>KV: unwrap/acesso CMK via Always Encrypted
-    App-->>Receiver: Plaintext somente se autorizado
+flowchart LR
+    Browser["Navegador / SPA"] -->|"HTTPS + cookie"| Istio["Istio ingress publico"]
+    Istio -->|mTLS| BFF["BFF .NET no AKS"]
+    BFF -->|"Identidade federada + Private Endpoint"| Blob["Blob privado: HTML, JS, CSS"]
+    BFF -->|"Token para API + mTLS"| API["API interna no AKS"]
+    BFF -->|"Authorization Code + PKCE"| Entra["Microsoft Entra ID"]
+    API -->|OBO| Entra
+    API -->|"Always Encrypted + Private Endpoint"| SQL["Azure SQL"]
+    API -->|"Token delegado + Private Endpoint"| KV["Key Vault / CMK"]
 ```
 
-| Recurso | Finalidade |
-|---------|------------|
-| Azure Container Apps | Hospeda a API .NET 8 |
-| Azure SQL Database | Armazena documentos criptografados e metadados de ACL |
-| Azure Key Vault | Armazena a Column Master Key usada pelo Always Encrypted |
-| Microsoft Entra ID | Autenticacao, tokens e fluxo OBO |
-| Log Analytics | Logs operacionais sem payload sensivel |
+O BFF executa o login OIDC e obtém o token da API. A API faz OBO para SQL e
+Key Vault. Istio configura roteamento e mTLS.
 
-## Documentacao
+O administrador SQL sem acesso à chave não consegue descriptografar o payload.
+BFF e API processam plaintext nas operações autorizadas. A restrição por
+destinatário usa `tid` e `oid` na API; não há Row-Level Security no banco.
 
-| Documento | Descricao |
-|-----------|-----------|
-| [docs/deploy.md](docs/deploy.md) | Guia end-to-end de deploy, configuracao, validacao e troubleshooting |
-| [docs/separation-of-duties.md](docs/separation-of-duties.md) | Prova reproduzivel de que AE+AKV bloqueia o SQL admin sem KV access |
-| [docs/arquitetura.md](docs/arquitetura.md) | Arquitetura e principais decisoes |
-| [docs/classes-e-metodos.md](docs/classes-e-metodos.md) | Diagrama de classes e referencia das classes/metodos da API |
-| [docs/fluxo-logico.md](docs/fluxo-logico.md) | Fluxo detalhado de escrita e leitura |
-| [docs/componentes-azure.md](docs/componentes-azure.md) | Componentes Azure e escolhas de SKU |
-| [docs/modelo-ameacas.md](docs/modelo-ameacas.md) | Ameacas cobertas, nao cobertas e riscos residuais |
-| [docs/validacao.md](docs/validacao.md) | Criterios de validacao e resultados |
-| [docs/publicacao.md](docs/publicacao.md) | Checklist antes de tornar o repositorio publico |
+## Instalação e testes
 
-## Suporte
+| Escopo | Obrigatório | Artefatos |
+|---|---|---|
+| Solução funcional | Sim | SPA/BFF/API, AKS/Istio, Entra, Blob/SQL/Key Vault privados, ACR e TLS |
+| Preparação e publicação | Sim, durante a implantação | `deploy-aks.ps1` e Job `bootstrap` para assets, chaves, schema e usuários explicitamente configurados |
+| Validação de segregacao | Não; opcional | `validation.bicep`, `setup-validation.ps1`, quatro identidades de teste e grants isolados |
 
-Este projeto **nao possui SLA nem suporte oficial**.
+Requisitos: PowerShell 7, Azure CLI/Bicep, kubectl, kubelogin, SDK para `net8.0`
+e Node.js 20+ para os testes de navegador. O ACR constrói as imagens; Docker local
+e o módulo SqlServer não são necessários.
 
-Veja [SUPPORT.md](./SUPPORT.md) para detalhes.
+A máquina administrativa precisa de acesso autorizado ao controle AKS.
+Consulte [permissões](docs/identidades-e-permissoes.md) e
+[deploy](docs/deploy.md). Substitua os placeholders abaixo.
 
-## Aviso Legal
+```powershell
+# 1. Validacao local
+dotnet test .\OboSqlServer.sln --configuration Release
 
-O uso deste projeto esta sujeito aos termos descritos em [DISCLAIMER.md](./DISCLAIMER.md).
+# 2. Recursos, federacoes, build e publicacao
+.\scripts\deploy-aks.ps1 `
+  -SubscriptionId "<subscription-id>" -TenantId "<tenant-id>" `
+  -OperatorCidrs @("<approved-egress-ip>/32") `
+  -SenderObjectIds @("<sender-user-object-id>") `
+  -ReceiverObjectIds @("<receiver-user-object-id>")
 
-## Contribuicoes
+# 3. Smoke test funcional (nao cria identidades de teste)
+.\scripts\test-aks.ps1 -SubscriptionId "<subscription-id>" `
+  -StatePath .\.local\aks\deployment.local.json
+```
 
-Contribuicoes podem ser aceitas a criterio do mantenedor.
+O teste de navegador e separado e exige login/MFA interativo:
 
-## Marcas Registradas (Trademarks)
+```powershell
+Set-Location .\tests\browser
+npm ci
+npx playwright install chromium
+$env:OBO_BASE_URL = "https://<public-host>"
+npm run test:live
+```
 
-Os nomes e servicos da Microsoft sao utilizados apenas para fins descritivos.
+Os testes SQL/Key Vault são opcionais e usam identidades próprias:
 
-Este projeto **nao e afiliado, endossado ou suportado oficialmente pela Microsoft**.
+```powershell
+# Na raiz, somente em ambiente de validacao autorizado:
+.\scripts\setup-validation.ps1 -SubscriptionId "<subscription-id>" `
+  -StatePath .\.local\aks\deployment.local.json
+.\scripts\test-aks.ps1 -SubscriptionId "<subscription-id>" `
+  -StatePath .\.local\aks\deployment.local.json -IncludeSegregation
+```
 
-O uso de marcas da Microsoft nao deve sugerir qualquer tipo de parceria ou suporte oficial.
+[Resultados e cobertura dos testes](docs/validacao.md). O E2E foi executado em
+23/09/2026; as alterações posteriores de setup/teardown e retomada foram testadas
+localmente.
 
-## 🤝 Contributing
+## Artefatos
 
-Issue and pull request creation is restricted to collaborators. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for details.
+| Caminho | Responsabilidade |
+|---|---|
+| `src\spa` | Interface sem cliente OAuth no browser |
+| `src\bff` | OIDC, sessão server-side, CSRF, proxy da API e leitura do Blob |
+| `src\api` | Autorização por documento, OBO, SQL e auditoria |
+| `src\operations` | Bootstrap privado e Jobs de segregacao |
+| `infra\bicep\aks.bicep` | AKS, Istio, ACR, rede, SQL, Key Vault, Blob e identidades |
+| `infra\bicep\validation.bicep` | Recursos de validação opcionais; não chamado pelo deploy funcional |
+| `infra\kubernetes` | Workloads, mTLS/políticas, ingress e renovação ACME |
+| `scripts\deploy-aks.ps1`, `scripts\test-aks.ps1`, `scripts\aks-common.ps1` | Deploy, publicação e operação |
+| `tests\browser`, `tests\scripts`, `src\*.Tests` | Testes UI/live, PowerShell e .NET |
+| `.local` | Estado privado de deploy; ignorado pelo Git e pelo Docker |
+
+O [legado ACA](docs/legacy/aca.md) usa `infra\bicep\main.bicep` e os scripts
+originais. Tem configuração de rede e credenciais diferente da implantação AKS.
+
+## Documentação
+
+| Documento | Conteúdo |
+|---|---|
+| [Arquitetura](docs/arquitetura.md) | Componentes, rede, identidades e tokens |
+| [Fluxo lógico](docs/fluxo-logico.md) | Login, escrita, leitura, negação e logout |
+| [Identidades e permissões](docs/identidades-e-permissoes.md) | Autenticação, identificadores e grants |
+| [Classes e métodos](docs/classes-e-metodos.md) | SPA, BFF, API, operações e configuração |
+| [Componentes Azure](docs/componentes-azure.md) | SKUs, rede, privilégios e custos |
+| [Deploy](docs/deploy.md) | Provisionar, publicar, repetir testes e remover |
+| [Operação BFF/AKS](docs/aks-bff.md) | Sessão, TLS, bootstrap e troubleshooting |
+| [Modelo de ameacas](docs/modelo-ameacas.md) | Controles e riscos residuais |
+| [Separacao de tarefas](docs/separation-of-duties.md) | Testes SQL/Key Vault com identidades distintas |
+| [Validação](docs/validacao.md) | Evidencias reais e limites dos testes |
+| [Publicação](docs/publicacao.md) | Privacidade e checklist dos artefatos |
+| [Apresentação HTML](docs/apresentacao.md) | Navegacao, consulta offline e regeneracao |
+
+## Limites operacionais
+
+O BFF tem **uma réplica/Recreate**, tickets e cache MSAL em memória e chaves
+Data Protection efêmeras. Reiniciar/publicar o BFF invalida sessões. Escalar exige
+estado compartilhado. O cluster de um node não oferece HA.
+
+AKS, discos, IPs e Private Endpoints geram custos mesmo sem usuários.
+Não ha Application Gateway, WAF ou Log Analytics provisionado no caminho AKS.
+
+## Licença, suporte e contribuicoes
+
+Licença [MIT](LICENSE). Sem SLA ou suporte oficial da Microsoft.
+Os nomes de produtos são usados apenas de forma descritiva; este projeto não e
+afiliado, endossado ou suportado oficialmente pela Microsoft.
+Consulte [CONTRIBUTING.md](CONTRIBUTING.md) antes de abrir issues ou pull requests.

@@ -1,3 +1,10 @@
+<#
+.SYNOPSIS
+Legacy ACA registration with a client secret and Azure CLI preauthorization.
+The primary AKS path creates separate BFF/API registrations with workload federation.
+.LINK
+../docs/legacy/aca.md
+#>
 param(
     [Parameter(Mandatory = $true)]
     [string] $TenantId,
@@ -13,6 +20,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot\azure-common.ps1"
+Initialize-AzureContext -TenantId $TenantId
 
 # Well-known resource and permission IDs (Azure built-ins)
 $AzureSqlAppId           = "022907d3-0f1b-48f7-badc-1ba6abab6d66"
@@ -25,23 +34,23 @@ $GraphProfileScopeId     = "14dad69e-099b-42c9-810b-d002981feec1"
 $GraphOfflineScopeId     = "7427e0e9-2fba-42fe-b0c0-848c9e6a8182"
 
 Write-Host "Ensuring app registration '$DisplayName' exists..."
-$existing = az ad app list --display-name $DisplayName --query "[0]" -o json --only-show-errors | ConvertFrom-Json
+$existing = Invoke-Az ad app list --display-name $DisplayName --query "[0]" -o json | ConvertFrom-Json
 if ($existing) {
     Write-Host "App already exists. appId=$($existing.appId)"
     $app = $existing
 } else {
-    $app = az ad app create --display-name $DisplayName --sign-in-audience AzureADMyOrg --only-show-errors -o json | ConvertFrom-Json
+    $app = Invoke-Az ad app create --display-name $DisplayName --sign-in-audience AzureADMyOrg -o json | ConvertFrom-Json
     Write-Host "Created app. appId=$($app.appId)"
 }
 $clientId  = $app.appId
 $objectId  = $app.id
 $apiUri    = "api://$clientId"
 
-az ad app update --id $clientId --identifier-uris $apiUri --only-show-errors
+Invoke-Az ad app update --id $clientId --identifier-uris $apiUri
 
-$sp = az ad sp list --filter "appId eq '$clientId'" --query "[0]" -o json --only-show-errors | ConvertFrom-Json
+$sp = Invoke-Az ad sp list --filter "appId eq '$clientId'" --query "[0]" -o json | ConvertFrom-Json
 if (-not $sp) {
-    $sp = az ad sp create --id $clientId --only-show-errors -o json | ConvertFrom-Json
+    $sp = Invoke-Az ad sp create --id $clientId -o json | ConvertFrom-Json
 }
 Write-Host "Service principal objectId=$($sp.id)"
 
@@ -73,25 +82,27 @@ $patch1 = @{
     )
 } | ConvertTo-Json -Depth 10 -Compress
 
-$tmp1 = Join-Path $env:TEMP "appreg-step1-$([guid]::NewGuid().ToString('N')).json"
-$patch1 | Out-File -LiteralPath $tmp1 -Encoding utf8
-az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/$objectId" --headers "Content-Type=application/json" --body "@$tmp1" --only-show-errors
-Remove-Item -LiteralPath $tmp1 -ErrorAction SilentlyContinue
+$tmp1 = Join-Path ([IO.Path]::GetTempPath()) "appreg-step1-$([guid]::NewGuid().ToString('N')).json"
+try {
+    $patch1 | Out-File -LiteralPath $tmp1 -Encoding utf8
+    Invoke-Az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/$objectId" --headers "Content-Type=application/json" --body "@$tmp1"
+} finally { if (Test-Path -LiteralPath $tmp1) { Remove-Item -LiteralPath $tmp1 } }
 Write-Host "Step 1 (scope + permissions) applied."
 
 # Step 2: pre-authorize Azure CLI for the new scope so users can acquire tokens with `az account get-access-token`
 $patch2 = @{ api = @{ preAuthorizedApplications = @(@{ appId = $AzureCliClientId; delegatedPermissionIds = @($scopeGuid) }) } } | ConvertTo-Json -Depth 10 -Compress
-$tmp2 = Join-Path $env:TEMP "appreg-step2-$([guid]::NewGuid().ToString('N')).json"
-$patch2 | Out-File -LiteralPath $tmp2 -Encoding utf8
-az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/$objectId" --headers "Content-Type=application/json" --body "@$tmp2" --only-show-errors
-Remove-Item -LiteralPath $tmp2 -ErrorAction SilentlyContinue
+$tmp2 = Join-Path ([IO.Path]::GetTempPath()) "appreg-step2-$([guid]::NewGuid().ToString('N')).json"
+try {
+    $patch2 | Out-File -LiteralPath $tmp2 -Encoding utf8
+    Invoke-Az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/$objectId" --headers "Content-Type=application/json" --body "@$tmp2"
+} finally { if (Test-Path -LiteralPath $tmp2) { Remove-Item -LiteralPath $tmp2 } }
 Write-Host "Step 2 (pre-authorize Azure CLI) applied."
 
 Write-Host "Granting admin consent..."
-az ad app permission admin-consent --id $clientId --only-show-errors
+Invoke-Az ad app permission admin-consent --id $clientId
 
 Write-Host "Creating client secret (1 year validity)..."
-$secret = az ad app credential reset --id $clientId --append --display-name "poc-secret" --years 1 --only-show-errors -o json | ConvertFrom-Json
+$secret = Invoke-Az ad app credential reset --id $clientId --append --display-name "poc-secret" --years 1 -o json | ConvertFrom-Json
 
 if (-not $SecretOutputPath) {
     Write-Warning "Secret was not written to disk. Save the value below in a secret store (Azure Key Vault, password manager). It will not be shown again by Microsoft Entra."

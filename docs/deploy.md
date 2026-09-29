@@ -1,305 +1,254 @@
-# Guia de deploy
+# Deploy no AKS
 
-Procedimento end-to-end para provisionar a PoC do zero em uma subscription Azure e validar os 7 testes de seguranca.
+Execute os comandos na raiz do repositório. Substitua os placeholders pelos
+valores do ambiente. O estado do deploy fica em `.local`.
+O [deploy ACA](legacy/aca.md) usa outros scripts.
 
-> Tempo medio: 20-30 minutos de operacao interativa + 10 minutos de espera por provisioning.
+## 1. Pre-requisitos e permissões
 
-## 1. Pre-requisitos
+| Onde | Necessário |
+|---|---|
+| Máquina do operador | PowerShell 7, Azure CLI/Bicep atuais, kubectl e kubelogin |
+| Validação local | SDK compatível com .NET 8; Node.js 20+ e npm para Playwright; Python 3 para testes de certificado |
+| Rede administrativa | Rota estavel ao controle do AKS por uma saida aprovada |
+| Azure | Criação dos recursos e role assignments da PoC |
+| Entra | Criação de aplicações/service principals, federação e admin consent delegado |
+| Login E2E | Usuário explicitamente configurado como remetente e destinatário; login/MFA manual |
 
-Ferramentas locais:
+As imagens são construídas no ACR, sem Docker local ou módulo SqlServer.
+A validação utilizou Azure CLI 2.90 e Bicep 0.47.
 
-- Azure CLI 2.60+ (`az version`)
-- Bicep 0.30+ (`az bicep version`)
-- .NET 8 SDK (`dotnet --version`)
-- PowerShell 7+ (`pwsh --version`)
-- Modulo SqlServer 22+ (`Install-Module SqlServer -Scope CurrentUser`)
-- GitHub CLI (opcional para clonar o repo)
+Solicite os acessos listados em [identidades e permissões](identidades-e-permissoes.md).
+RBAC da subscription e permissões Entra são concedidos separadamente.
 
-Permissoes no Azure:
-
-- Owner (ou Contributor + User Access Administrator) na subscription escolhida.
-- Permissao para criar App Registration no Microsoft Entra ID.
-- Permissao para conceder admin consent no tenant.
-
-> Esta PoC usa endpoints publicos restritos para reduzir custo. Para producao, planeje Private Endpoint + VNet integration antes de subir.
-
-## 2. Preflight
-
-Selecione a subscription com maior folga de forecast contra um limite (ex.: USD 150) e confirme registro de providers e regioes.
+## 2. Selecionar o ambiente e validar localmente
 
 ```powershell
-# Exemplo de mapping local de forecast (NAO commitar no repo)
-$forecasts = @(
-  @{ name='SubA'; subscriptionId='<sub-A>'; currency='USD'; forecast=80;  limitUsd=150 },
-  @{ name='SubB'; subscriptionId='<sub-B>'; currency='BRL'; forecast=400; limitUsd=150 },
-  @{ name='SubC'; subscriptionId='<sub-C>'; currency='USD'; forecast=95;  limitUsd=150 }
-)
-$forecasts | ConvertTo-Json -Depth 4 | Out-File -LiteralPath .\forecasts.local.json -Encoding utf8
+az login --tenant "<tenant-id>"
+az rest --subscription "<subscription-id>" --method get `
+  --url "https://management.azure.com/subscriptions/<subscription-id>?api-version=2022-12-01" `
+  --query "{name:displayName,state:state}"
 
-.\scripts\preflight-azure.ps1 -TenantId "<entra-tenant-id>" -ForecastsPath .\forecasts.local.json
+.\scripts\preflight-azure.ps1 -TenantId "<tenant-id>" -Architecture AKS
+dotnet test .\OboSqlServer.sln --configuration Release
+.\tests\scripts\manifests.Tests.ps1
+.\tests\scripts\architecture.Tests.ps1
+.\tests\scripts\deployment.Tests.ps1
+.\tests\scripts\state.Tests.ps1
+.\tests\scripts\certificate.Tests.ps1
+.\tests\scripts\azure-cli.Tests.ps1
+python -m unittest discover -s .\tests\python -v
+az bicep build --file .\infra\bicep\aks.bicep --stdout > $null
 ```
 
-A saida mostra:
+O preflight consulta providers e lista regiões. Consulte também a quota de
+vCPU, a SKU da VM e as versões AKS/Istio disponíveis na região.
+O deploy verifica o ID da subscription pela ARM API; o nome no cache CLI pode
+estar desatualizado.
 
-- Subscriptions enabled no tenant.
-- Headroom em USD ordenado.
-- Status dos providers (`Microsoft.App`, `Microsoft.Sql`, `Microsoft.KeyVault`, `Microsoft.OperationalInsights`, `Microsoft.ManagedIdentity`).
-- Regioes candidatas (`brazilsouth`, `eastus`, `eastus2`).
+## 3. Provisionar recursos e identidades
 
-> `forecasts.local.json` esta no `.gitignore` (padrao `*.local.json`).
-
-## 3. Provisionar infraestrutura
-
-Crie o arquivo de parametros local a partir do exemplo.
+O deploy pode ser separado em recursos/federações e publicação. A primeira etapa
+usa ARM/Entra; a segunda exige acesso autenticado ao Kubernetes:
 
 ```powershell
-Copy-Item .\infra\bicep\main.parameters.json.example .\infra\bicep\main.parameters.local.json
-```
-
-Edite `main.parameters.local.json` com:
-
-- `sqlEntraAdminObjectId`: object id do usuario Entra que sera o admin do SQL.
-- `sqlEntraAdminLogin`: UPN do mesmo usuario.
-- `keyVaultCryptoUserObjectIds`: array com os object ids que devem receber Key Vault Crypto User para Always Encrypted (inclua sender e receiver da PoC).
-- `allowAzureServicesToSql`: `true` (Container Apps Consumption usa IPs Azure).
-
-Faca o deploy:
-
-```powershell
-.\scripts\deploy-infra.ps1 `
-  -SubscriptionId "<sub-id>" `
+.\scripts\deploy-aks.ps1 `
+  -SubscriptionId "<subscription-id>" -TenantId "<tenant-id>" `
+  -ResourceGroupName "rg-obo-aks-poc-brs-001" `
   -Location "brazilsouth" `
-  -ResourceGroupName "rg-obo-sql-poc-brs-001" `
-  -ParametersFile ".\infra\bicep\main.parameters.local.json"
+  -OperatorCidrs @("<approved-egress-ip>/32") `
+  -SenderObjectIds @("<sender-user-object-id>") `
+  -ReceiverObjectIds @("<receiver-user-object-id>") `
+  -InfrastructureOnly
 ```
 
-Outputs relevantes do deploy (anote):
+O script cria as duas App Registrations, configura consentimento, executa
+what-if e aplica `infra\bicep\aks.bicep`. Em seguida, configura federações e
+redirects do BFF. Usa credenciais federadas, sem client secrets.
+Crypto User é concedido aos participantes informados. Os usuários de teste
+`db_owner` pertencem à etapa opcional da seção 6.
 
-- `containerAppName`, `containerAppUrl`
-- `sqlServerName`, `sqlServerFqdn`, `sqlDatabaseName`
-- `keyVaultName`, `keyVaultKeyId`
-- `userAssignedIdentityClientId`
+### Parâmetros
 
-> Daily cap do Log Analytics ja vem em 25 MB no Bicep. Ajuste em `workspaceCapping.dailyQuotaGb` se precisar.
+| Parâmetro | Valor a fornecer |
+|---|---|
+| `SubscriptionId` / `TenantId` | IDs do destino; o script confere a correspondencia na ARM |
+| `ResourceGroupName` | RG exclusivo do exemplo; o script não assume posse de RG sem sua tag |
+| `Location` | Região aprovada com disponibilidade/quotas para os recursos |
+| `OperatorCidrs` | Saidas administrativas explicitamente aprovadas, não IPs de usuários finais |
+| `SenderObjectIds` | Object IDs de usuários que podem inserir documentos |
+| `ReceiverObjectIds` | Object IDs de usuários que podem consultar documentos destinados a eles |
+| `KubernetesVersion` / `IstioRevision` | Versões compatíveis e disponiveis no destino |
+| `OutputDirectory` | Diretório local privado para estado; padrão `.local\aks` |
 
-## 4. Liberar acesso ao SQL para o operador
+O mesmo usuário pode estar nas duas listas. Listas vazias na primeira implantação
+não criam usuários de aplicação; o script emite aviso. Nas reaplicações, omitir
+um parâmetro preserva a lista anterior.
 
-Para rodar o setup do Always Encrypted, libere o IP do operador no firewall do SQL.
+Os outputs ficam em `.local\aks\deployment.local.json`.
+`infrastructureReady=false` indica que a configuração de recursos/federações
+precisa terminar antes da publicação.
+
+Reaplicar a infraestrutura preserva as tags de imagens existentes. Em um ambiente
+novo, as tags ficam vazias até o build; `-SkipImageBuild` recusa esse estado.
+O arquivo `aks.parameters.json.example` descreve os parâmetros do template.
+O script gera o arquivo local usado no deploy.
+
+## 4. Publicar a aplicação
 
 ```powershell
-$myIp = (Invoke-RestMethod -Uri 'https://api.ipify.org?format=json').ip
-az sql server firewall-rule create `
-  -g rg-obo-sql-poc-brs-001 `
-  -s <sql-server-name> `
-  -n "allow-operator-ip" `
-  --start-ip-address $myIp --end-ip-address $myIp
+.\scripts\deploy-aks.ps1 `
+  -SubscriptionId "<subscription-id>" -TenantId "<tenant-id>" `
+  -ResourceGroupName "rg-obo-aks-poc-brs-001" -SkipInfrastructure
 ```
 
-Remova a regra apos o setup se nao for usar mais.
+Execute de uma máquina com saída incluída em `OperatorCidrs`.
+A máquina administrativa não é provisionada pelo projeto.
 
-## 5. Inicializar Always Encrypted
+O script constrói três imagens no ACR e aplica os manifests via kubectl.
+O Job de bootstrap publica a SPA e configura CMK, CEK, tabelas e usuários dentro
+da VNet. O token SQL do operador passa em memória para um Secret temporário;
+o Secret e o Job são removidos ao terminar.
 
-Cria a Column Master Key (metadata apontando para o AKV), a Column Encryption Key (CEK aleatoria embrulhada pelo AKV) e as tabelas `dbo.Documents` (com `EncryptedPayload varbinary(max) ENCRYPTED WITH ...`) e `dbo.DocumentAccessAudit`.
+Após aplicar workloads e políticas, o script espera readiness, solicita o
+certificado Let's Encrypt e consulta `/healthz`. SQL, Key Vault e Storage
+permanecem com acesso público desabilitado.
+[Detalhes de operação](aks-bff.md).
+
+## 5. E2E real no navegador
 
 ```powershell
-.\scripts\setup-always-encrypted.ps1 `
-  -SqlServerFqdn "<sql-server>.database.windows.net" `
-  -DatabaseName "sqldb-obo-sql-poc" `
-  -KeyVaultKeyUrl "<keyVaultKeyId output>"
+Set-Location .\tests\browser
+npm ci
+npx playwright install chromium
+$env:OBO_BASE_URL = "https://<public-host>"
+npm run test:live
 ```
 
-Validacao rapida:
+Conclua login/MFA e deixe a automação operar a tela. O teste compara os bytes
+enviados e recebidos, verifica negações, CSRF, cookies e logout.
+A espera de login não expira; depois, o teste tem cinco minutos para concluir.
+Configure o usuário nas duas listas para a suite de round-trip.
+
+## 6. Validação de segregacao (opcional)
+
+Execute somente em um ambiente autorizado para criar identidades/grants de teste:
 
 ```powershell
-$sqlToken = az account get-access-token --resource 'https://database.windows.net' --query accessToken -o tsv
-$cs = "Server=tcp:<fqdn>,1433;Database=sqldb-obo-sql-poc;Encrypt=True;TrustServerCertificate=False;"
-Invoke-Sqlcmd -ConnectionString $cs -AccessToken $sqlToken -Query "SELECT name, key_store_provider_name FROM sys.column_master_keys"
+.\scripts\setup-validation.ps1 -SubscriptionId "<subscription-id>" `
+  -StatePath .\.local\aks\deployment.local.json
+.\scripts\test-aks.ps1 -SubscriptionId "<subscription-id>" `
+  -StatePath .\.local\aks\deployment.local.json -IncludeSegregation
 ```
 
-## 6. Criar App Registration para OBO
+`setup-validation.ps1` aplica `validation.bicep` com what-if, cria quatro
+ServiceAccounts e executa o Job `setup-validation` com token SQL administrativo
+efêmero. Dois usuários `db_owner` são controles de teste, não identidades da
+aplicação. O estado separado `validation.local.json` só e marcado pronto após
+concluir os grants. `test-aks.ps1` sem o switch não cria nem exige esses recursos.
 
-Cria a app Entra com scope `user_impersonation`, declara permissoes delegadas para Azure SQL, Key Vault e Microsoft Graph, pre-autoriza o Azure CLI (para testes com `az account get-access-token`) e gera client secret.
+Para retirar apenas os controles, mantendo a aplicação:
 
 ```powershell
-.\scripts\create-app-registration.ps1 `
-  -TenantId "<entra-tenant-id>" `
-  -DisplayName "obo-sqlserver-poc-api" `
-  -SecretOutputPath ".\client-secret.local.txt"
+.\scripts\remove-validation.ps1 -SubscriptionId "<subscription-id>" `
+  -StatePath .\.local\aks\deployment.local.json -WhatIf
+.\scripts\remove-validation.ps1 -SubscriptionId "<subscription-id>" `
+  -StatePath .\.local\aks\deployment.local.json
 ```
 
-A saida imprime o `clientId`. Salve para os proximos passos. O secret e escrito em `client-secret.local.txt` (gitignored).
+O teardown pede confirmação e confere nomes, IDs, tags e escopos. Remove usuários
+SQL, Jobs, ServiceAccounts e identidades/grants de teste. Os registros sintéticos
+no SQL permanecem.
 
-> Admin consent e feito automaticamente. Em tenants com Conditional Access bloqueando consent via CLI, faca o consent pelo portal: Microsoft Entra > App registrations > obo-sqlserver-poc-api > API permissions > Grant admin consent.
-
-## 7. Build e push da imagem da API
-
-Cria ACR Basic e roda `az acr build` (build remoto, dispensa Docker local).
+## 7. Repetir sem republicar ou atualizar a aplicação
 
 ```powershell
-.\scripts\build-and-push-image.ps1 `
-  -SubscriptionId "<sub-id>" `
-  -ResourceGroupName "rg-obo-sql-poc-brs-001" `
-  -AcrName "cr<random10>" `
-  -Tag "1.0.0"
+.\scripts\test-aks.ps1 -SubscriptionId "<subscription-id>" `
+  -StatePath .\.local\aks\deployment.local.json
+
+# Publicar codigo novo (build remoto incluso):
+.\scripts\deploy-aks.ps1 -SubscriptionId "<subscription-id>" -TenantId "<tenant-id>" `
+  -SkipInfrastructure
+
+# Ou reaplicar a tag ja construida:
+.\scripts\deploy-aks.ps1 -SubscriptionId "<subscription-id>" -TenantId "<tenant-id>" `
+  -SkipInfrastructure -SkipImageBuild
 ```
 
-Anote o `loginServer` e a tag (saida JSON).
+Publicar/reiniciar o BFF invalida sessões. `test-aks.ps1` não altera os workloads
+da aplicação nem pede token SQL do operador. Apenas com `-IncludeSegregation`
+cria fixtures/Jobs usando as identidades opcionais ja configuradas.
+`tag` identifica as imagens da aplicação; `operationsTag` pode identificar uma
+sonda atualizada sem trocar o BFF. Um build completo atualiza ambas.
 
-## 8. Atualizar o Container App com a imagem e secrets
+O manifesto renderizado inclui sua revisão SHA-256 nos pod templates de BFF
+e API. Alterações de configuração provocam rollout mesmo com `-SkipImageBuild`.
+Reaplicar o mesmo manifesto mantém os pods. O restart do BFF exige novo login.
 
-Concede AcrPull ao managed identity, configura registry no ACA, registra o client secret e atualiza imagem + env vars.
+## Deploy em uma única etapa
+
+Com ferramentas e rota estavel ao controle do AKS:
 
 ```powershell
-.\scripts\update-container-app.ps1 `
-  -SubscriptionId "<sub-id>" `
-  -ResourceGroupName "rg-obo-sql-poc-brs-001" `
-  -ContainerAppName "ca-obo-sql-api-poc-brs" `
-  -ManagedIdentityName "id-obo-sql-api-poc-brs" `
-  -AcrName "cr<random10>" `
-  -Image "<acr>.azurecr.io/obo-sqlserver-api:1.0.0" `
-  -TenantId "<entra-tenant-id>" `
-  -ApiClientId "<client-id>" `
-  -ClientSecretFile ".\client-secret.local.txt"
+.\scripts\deploy-aks.ps1 -SubscriptionId "<subscription-id>" -TenantId "<tenant-id>" `
+  -OperatorCidrs @("<approved-egress-ip>/32") `
+  -SenderObjectIds @("<sender-user-object-id>") `
+  -ReceiverObjectIds @("<receiver-user-object-id>")
 ```
 
-Aguarde 30-60s para a revisao nova ficar `Healthy`:
+`-SkipInfrastructure` retoma somente build/bootstrap/workloads.
+`-BuildImagesOnly` junto de `-SkipInfrastructure` constroi as imagens sem
+conectar via kubectl. Não infira faixas maiores a partir de IPs variáveis.
+Mudancas nas listas de usuários exigem a etapa de infraestrutura para aplicar
+RBAC no Key Vault; não podem ser passadas junto de `-SkipInfrastructure`.
+Retirar IDs da configuração não revoga grants existentes. Faça a revogação
+separadamente no SQL e no RBAC.
+
+## Cleanup do ambiente
+
+O comando exclui o RG inteiro. Confira o destino com `-WhatIf`:
 
 ```powershell
-az containerapp revision list -g rg-obo-sql-poc-brs-001 -n ca-obo-sql-api-poc-brs `
-  --query "[?properties.active].{name:name, healthState:properties.healthState}" -o table
+.\scripts\cleanup.ps1 -SubscriptionId "<subscription-id>" `
+  -ResourceGroupName "rg-obo-aks-poc-brs-001" -WhatIf
+
+# Somente depois de conferir o alvo:
+.\scripts\cleanup.ps1 -SubscriptionId "<subscription-id>" `
+  -ResourceGroupName "rg-obo-aks-poc-brs-001"
 ```
 
-Sanity check:
-
-```powershell
-Invoke-RestMethod -Uri "https://<app-url>/healthz"
-# -> {"status":"ok"}
-```
-
-## 9. Validacao end-to-end (7 testes)
-
-```powershell
-.\scripts\validate-poc.ps1 `
-  -BaseUrl "https://<app-url>" `
-  -ApiClientId "<client-id>" `
-  -SqlServerFqdn "<sql-server>.database.windows.net" `
-  -DatabaseName "sqldb-obo-sql-poc"
-```
-
-Saida esperada: 7/7 PASS.
-
-| # | Teste | Esperado |
-|---|---|---|
-| T1 | POST sender=me, receiver=me | 201 |
-| T2 | POST sender=me, receiver=other | 201 |
-| T3 | GET docA com receiver=me | 200 + plaintext igual ao original |
-| T4 | GET docB com nao-receiver | 403 |
-| T5 | GET sem token | 401 |
-| T6 | SQL Admin SUBSTRING na coluna criptografada | erro "Encryption scheme mismatch" |
-| T7 | Auditoria gravada | linhas em `dbo.DocumentAccessAudit` |
-
-## 10. Validacao adicional: separacao de duties (opcional)
-
-Os 7 testes acima usam um unico usuario. Para provar que **Always Encrypted + AKV bloqueia o SQL admin sem KV access** e que grants distintos INSERT vs SELECT funcionam com AE ativo, rode:
-
-```powershell
-.\scripts\setup-separation-of-duties.ps1 `
-  -SubscriptionId "<sub-id>" `
-  -ResourceGroupName "rg-obo-sql-poc-brs-001" `
-  -SqlServerFqdn "<sql>.database.windows.net" `
-  -DatabaseName "sqldb-obo-sql-poc" `
-  -KeyVaultName "<kv-name>" `
-  -TenantId "<tenant-id>" `
-  -SecretsOutputPath ".\poc-sp-secrets.local.json"
-
-.\scripts\test-separation-of-duties.ps1 `
-  -SqlFqdn "<sql>.database.windows.net" `
-  -Database "sqldb-obo-sql-poc" `
-  -TenantId "<tenant-id>" `
-  -SecretsFile ".\poc-sp-secrets.local.json"
-```
-
-Detalhes em [separation-of-duties.md](separation-of-duties.md).
-
-## 11. Cleanup
-
-Remove o resource group inteiro.
-
-```powershell
-.\scripts\cleanup.ps1 `
-  -SubscriptionId "<sub-id>" `
-  -ResourceGroupName "rg-obo-sql-poc-brs-001"
-```
-
-Também remova manualmente:
-
-- App registration principal (Microsoft Entra > App registrations > obo-sqlserver-poc-api > Delete).
-- Service principals do teste de separacao (se rodou): `sp-poc-sender`, `sp-poc-reader`.
-- Arquivos locais com secrets (`client-secret.local.txt`, `main.parameters.local.json`, `poc-sp-secrets.local.json`).
-
-> Key Vault tem `softDeleteRetentionInDays = 7` + `enablePurgeProtection = true`. Apos delete, o nome fica reservado por 7 dias. Para reuso imediato, escolha outro `workloadName` no Bicep.
+O script pede confirmação e solicita exclusão assíncrona. Aguarde a conclusão.
+AKS remove seu node RG gerenciado. Remova as duas App Registrations separadamente,
+pelos IDs no estado local. O Key Vault fica retido por soft delete/purge protection.
+Guarde o estado local até concluir a limpeza.
 
 ## Troubleshooting
 
-### POST /documents retorna 401
+| Sintoma | Conferir |
+|---|---|
+| `kubectl` timeout TLS | IP de saida vs `OperatorCidrs`; use rota administrativa autorizada, não amplie para `0.0.0.0/0` |
+| BFF 500 / `IDW10503` | Token acquisition deve usar `OpenIdConnect`, não `Cookies` |
+| Falha em federation | Issuer, subject/ServiceAccount, audience e arquivo projetado do workload |
+| API 401/403 | Audience v2 igual ao client ID, scope delegado, AllowedClientId e ACL |
+| SQL 18456 nos testes | SID de app/MI usa client ID; não usar object ID para esse SID |
+| Usuário real sem acesso a documentos | Confirme listas de usuários, grants SQL e Crypto User; `/healthz` não valida esses acessos |
+| Segregacao solicitada sem setup | Execute `setup-validation.ps1`; não e parte obrigatoria do deploy |
+| Key Vault 403 | Distinguir `ForbiddenByRbac` de `ForbiddenByConnection`; validar DNS/rede e identidade |
+| CMK falha no provisionamento ARM | Deve ser criada pelo Job privado, não abrir firewall do vault |
+| Blob anônimo 409 dentro da VNet | `PublicAccessNotPermitted` e esperado; a leitura autenticada do BFF deve funcionar |
+| Certificado/HTTPS indisponível | O Secret `obo-tls` deve ter tipo `kubernetes.io/tls`; reaplique o deploy para inicializá-lo e publicar o certificado do PVC |
+| PATCH do certificado retorna 422 | O tipo do Secret é imutável. O deploy substitui somente um placeholder `Opaque` vazio; Secrets com dados exigem revisão manual |
 
-- Audience errado. Em token v2 (`requestedAccessTokenVersion = 2`), `aud = clientId` (sem `api://`). Confirme `AzureAd__Audience = <clientId>` puro nas env vars do ACA.
-- Tenant errado no `AzureAd__TenantId`.
+## Adaptacao e ambientes anteriores
 
-### POST /documents retorna 500
+Os scripts criam um RG exclusivo e usam tenant único, hostname Azure e
+Let's Encrypt. Integração com recursos existentes ou outra PKI exige alterar
+os templates e testar os redirects, identidades e TLS.
 
-- AKV permission ausente para o usuario chamador. Confirme Key Vault Crypto User no escopo do vault.
-- CMK/CEK metadata nao criada no SQL. Re-rode `setup-always-encrypted.ps1`.
-- Connection string sem `Column Encryption Setting=Enabled`. Verifique env var `Sql__ConnectionString`.
-
-### GET /documents retorna 500
-
-- Bug conhecido: `datetime2` SQL nao casta direto para `DateTimeOffset` no leitor. Ja corrigido na imagem `1.0.1+`.
-
-### Container App nao puxa imagem
-
-- AcrPull ausente. Re-rode `update-container-app.ps1` (e idempotente).
-- Registry config sem identidade. Confirme em `properties.configuration.registries`.
-
-### `az acr build` falha por dependencias .NET
-
-- Confirme que `Dockerfile` esta na raiz e `.dockerignore` nao esta excluindo `src/`.
-
-### SQL admin consegue ler plaintext
-
-- CMK nao foi criada via AKV ou Always Encrypted nao foi declarado na coluna. Verifique:
-
-  ```sql
-  SELECT name, key_store_provider_name, LEFT(key_path,100) AS path FROM sys.column_master_keys;
-  SELECT c.name, c.encryption_type_desc, c.encryption_algorithm_name
-  FROM sys.columns c JOIN sys.tables t ON c.object_id = t.object_id
-  WHERE t.name = 'Documents' AND c.name = 'EncryptedPayload';
-  ```
-
-## Estrutura dos scripts
-
-| Script | Funcao |
-|--------|--------|
-| `preflight-azure.ps1` | Mapeia subscriptions, calcula headroom, valida providers e regioes |
-| `deploy-infra.ps1` | `az deployment group create` com Bicep |
-| `setup-always-encrypted.ps1` | Cria CMK metadata, embrulha CEK via AKV provider, cria tabelas |
-| `setup-separation-of-duties.ps1` | Cria SPs sender/reader com KV access e grants SQL distintos |
-| `test-separation-of-duties.ps1` | Roda S1/S2/R1/R2/E1 demonstrando enforcement e papel do AKV |
-| `create-app-registration.ps1` | Cria app Entra, scope, permissoes, pre-autoriza Azure CLI, gera secret |
-| `build-and-push-image.ps1` | Cria ACR se nao existir e roda `az acr build` |
-| `update-container-app.ps1` | AcrPull + registry + secret + env vars + imagem nova |
-| `validate-poc.ps1` | 7 testes black-box (POST/GET/auth/SQL admin/audit) |
-| `cleanup.ps1` | `az group delete` |
-
-## Custos esperados (PoC ociosa, brazilsouth)
-
-| Recurso | Custo mensal aprox. (USD) |
-|---------|---------------------------|
-| Azure SQL Basic | ~5 |
-| Key Vault Standard | ~0,03 + ops |
-| ACA Consumption (min=0) | ~0 (cold) |
-| ACR Basic | ~5 |
-| Log Analytics | limitado a 25 MB/dia ~ <2 |
-| **Total ocioso** | **~10-13** |
-
-Carga real e cold start contam aparte. Para PoC de algumas horas, esperar <USD 1 incremental.
+Em ambientes de versões anteriores deste exemplo, reaplicacao incremental de
+Bicep não remove recursos de teste ou grants antigos. O setup/teardown opcional
+pode adotar e remover os controles identificados. Revise os grants antigos do
+operador no Key Vault.
+Se o estado não contiver `applicationUsers` ou `sqlAdminObjectId`, reaplique a
+etapa de infraestrutura com os participantes.
+[Procedimentos de validação](validacao.md).

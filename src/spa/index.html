@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Documentos protegidos | OBO SQL</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">PoC · AKS / Istio / Always Encrypted</p>
+      <h1>Documentos protegidos</h1>
+      <p>SPA no Blob privado. Sessao no BFF. Tokens somente no servidor.</p>
+      <a id="login" href="/bff/login">Entrar com Microsoft Entra ID</a>
+      <button id="logout" hidden>Sair desta aplicacao</button>
+    </header>
+    <p id="status" role="status" aria-live="polite">Verificando sessao...</p>
+    <section id="identity" hidden>
+      <h2>Sessao atual</h2>
+      <dl><dt>Usuario</dt><dd id="user-name"></dd><dt>Tenant ID</dt><dd id="tenant"></dd><dt>Object ID</dt><dd id="object"></dd></dl>
+    </section>
+    <section id="workspace" hidden>
+      <form id="send">
+        <h2>Enviar documento</h2>
+        <label>Tenant ID do destinatario<input name="tenant" required pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" autocomplete="off"></label>
+        <label>Object ID do destinatario<input name="receiver" required pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" autocomplete="off"></label>
+        <label>Arquivo (ate 10 MiB)<input name="file" type="file" required></label>
+        <button type="submit">Criptografar e enviar</button>
+        <output id="created"></output>
+      </form>
+      <form id="read">
+        <h2>Receber documento</h2>
+        <label>ID do documento<input name="document" required pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" autocomplete="off"></label>
+        <button type="submit">Ler e baixar</button>
+      </form>
+    </section>
+    <footer>Near-E2EE: o SQL armazena ciphertext; o backend autorizado ve plaintext em memoria. Exemplo educacional, nao destinado a producao.</footer>
+  </main>
+</body>
+</html>

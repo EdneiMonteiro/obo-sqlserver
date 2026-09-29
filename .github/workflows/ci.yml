@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   dotnet:
-    name: .NET build and test
+    name: API, BFF, SPA and local tooling
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,8 +31,52 @@ jobs:
       - name: Test
         run: dotnet test OboSqlServer.sln --configuration Release --no-build
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Check SPA JavaScript
+        run: node --check src/spa/app.js
+
+      - name: Test SPA in Chromium with mocked services
+        working-directory: tests/browser
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+
+      - name: Parse deployment scripts
+        shell: pwsh
+        run: |
+          Get-ChildItem scripts/*.ps1,tests/scripts/*.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
+
+      - name: Test deployment helpers without Azure
+        shell: pwsh
+        run: |
+          ./tests/scripts/manifests.Tests.ps1
+          ./tests/scripts/architecture.Tests.ps1
+          ./tests/scripts/deployment.Tests.ps1
+          ./tests/scripts/state.Tests.ps1
+          ./tests/scripts/certificate.Tests.ps1
+          ./tests/scripts/azure-cli.Tests.ps1
+
+      - name: Test certificate reconciliation without network
+        run: python -m unittest discover -s tests/python -v
+
+      - name: Validate offline client presentation
+        working-directory: tools/presentation
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+
   bicep:
-    name: Bicep validation
+    name: Bicep (AKS primary and ACA legacy)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,5 +84,7 @@ jobs:
       - name: Build Bicep
         uses: azure/cli@v2
         with:
-          inlineScript: az bicep build --file infra/bicep/main.bicep
-
+          inlineScript: |
+            az bicep build --file infra/bicep/aks.bicep
+            az bicep build --file infra/bicep/validation.bicep
+            az bicep build --file infra/bicep/main.bicep

@@ -1,177 +1,181 @@
-# Classes e Metodos
+# Classes e métodos
 
-Este documento descreve as principais classes da API .NET 8, seus metodos e como elas se relacionam no fluxo de escrita e leitura de documentos.
+Tipos da API, do BFF e das operações .NET 8.
+`BffProgram` e `ApiProgram` no diagrama representam os respectivos `Program.cs`.
 
-## Diagrama de classes
+## Relacoes principais
 
 ```mermaid
 classDiagram
-    class Program {
-        <<Minimal API>>
-        +ConfigureAuthentication()
-        +RegisterServices()
-        +MapEndpoints()
+    class BffProgram
+    class ApiProgram
+    class BffOptions
+    class ServerTicketStore {
+        +StoreAsync()
+        +RenewAsync()
+        +RetrieveAsync()
+        +RemoveAsync()
     }
-
-    class SqlOptions {
-        +string ConnectionString
-        +string DatabaseScope
-        +int MaxDocumentBytes
+    class DocumentProxy {
+        +ForwardAsync()
     }
-
-    class CorrelationIdMiddleware {
-        +string HeaderName
-        +InvokeAsync()
+    class IApiTokenProvider {
+        <<interface>>
+        +GetAsync()
     }
-
+    class ApiTokenProvider {
+        +GetAsync()
+    }
+    class IStaticAssetStore {
+        <<interface>>
+        +GetAsync()
+    }
+    class StaticAssetStore {
+        +GetAsync()
+    }
     class DocumentService {
-        -int _maxDocumentBytes
         +CreateAsync()
         +GetAsync()
-        -GetCorrelationId()
     }
-
+    class DocumentValidation {
+        +Decode()
+    }
+    class DocumentAuthorization {
+        +IsAllowed()
+    }
     class DocumentRepository {
         +InsertAsync()
         +GetMetadataAsync()
         +GetPayloadAsync()
         +MarkReadAsync()
         +AuditAsync()
-        -AuditAsync()
-        -AddGuid()
-        -AddNullableGuid()
-        -AddString()
-        -AddBytes()
     }
-
     class SqlConnectionFactory {
         +OpenAsync()
     }
-
     class DelegatedTokenCredential {
         +GetToken()
         +GetTokenAsync()
-        -TryReadExpiry()
     }
-
     class CurrentUserAccessor {
         +GetRequiredUser()
     }
-
     class CurrentUser {
-        <<record>>
-        +Guid TenantId
-        +Guid ObjectId
-        +string DisplayName
         +FromClaimsPrincipal()
-        -ReadGuidClaim()
     }
-
-    class DocumentMetadata {
-        <<record>>
-        +Guid DocumentId
-        +Guid SenderTenantId
-        +Guid SenderObjectId
-        +Guid ReceiverTenantId
-        +Guid ReceiverObjectId
-        +string FileName
-        +string ContentType
-        +DateTimeOffset CreatedAt
-    }
-
-    class CreateDocumentRequest {
-        <<record>>
-        +Guid ReceiverTenantId
-        +Guid ReceiverObjectId
-        +string FileName
-        +string ContentType
-        +string PayloadBase64
-    }
-
-    class CreateDocumentResponse {
-        <<record>>
-        +Guid DocumentId
-    }
-
-    class ReadDocumentResponse {
-        <<record>>
-        +Guid DocumentId
-        +string FileName
-        +string ContentType
-        +string PayloadBase64
-        +DateTimeOffset CreatedAt
-    }
-
-    class DocumentReadResult {
-        <<record>>
-        +DocumentReadStatus Status
-        +ReadDocumentResponse Document
-    }
-
-    class DocumentReadStatus {
-        <<enumeration>>
-        Found
-        NotFound
-        Forbidden
-    }
-
-    Program ..> CorrelationIdMiddleware : usa
-    Program ..> DocumentService : endpoints
-    Program ..> SqlOptions : configuracao
-    DocumentService --> DocumentRepository
+    BffProgram --> BffOptions
+    BffProgram --> ServerTicketStore
+    BffProgram --> DocumentProxy
+    BffProgram --> IStaticAssetStore
+    IStaticAssetStore <|.. StaticAssetStore
+    IApiTokenProvider <|.. ApiTokenProvider
+    DocumentProxy --> IApiTokenProvider
+    ApiProgram --> DocumentAuthorization
+    ApiProgram --> DocumentService
     DocumentService --> CurrentUserAccessor
-    DocumentService ..> CorrelationIdMiddleware : le correlation id
-    DocumentService ..> CreateDocumentRequest
-    DocumentService ..> CreateDocumentResponse
-    DocumentService ..> DocumentReadResult
-    DocumentReadResult --> ReadDocumentResponse
-    DocumentReadResult --> DocumentReadStatus
+    CurrentUserAccessor --> CurrentUser
+    DocumentService --> DocumentValidation
+    DocumentService --> DocumentRepository
     DocumentRepository --> SqlConnectionFactory
-    DocumentRepository ..> CurrentUser
-    DocumentRepository ..> DocumentMetadata
-    DocumentRepository ..> CreateDocumentRequest
-    SqlConnectionFactory --> SqlOptions
     SqlConnectionFactory --> DelegatedTokenCredential
-    CurrentUserAccessor ..> CurrentUser
-    CurrentUser ..> ClaimsPrincipal
 ```
 
-## Composition root e HTTP
+## BFF (`src\bff`)
 
-| Classe | Responsabilidade | Metodos / membros |
-|--------|------------------|-------------------|
-| `Program` | Configura autenticacao JWT Bearer com Microsoft Identity Web, injecao de dependencias, middleware de correlacao e endpoints da Minimal API. | `GET /healthz` retorna status anonimo; `POST /documents` cria documento autenticado; `GET /documents/{documentId}` le documento autenticado e converte o resultado em `200`, `403` ou `404`. |
-| `CorrelationIdMiddleware` | Garante um identificador de correlacao por requisicao para resposta HTTP e auditoria. | `HeaderName` define o header `x-correlation-id`; `InvokeAsync` reutiliza um GUID valido do header ou gera um novo, salva em `HttpContext.Items` e ecoa no response header. |
+| Tipo / arquivo | Responsabilidade e membros |
+|---|---|
+| `Program.cs` | Configura Cookies + OIDC/PKCE, MSAL, ticket store, antiforgery, Blob client, HttpClient fixo, headers de seguranca, proxy e rotas |
+| `BffOptions` | `PublicOrigin`, `ApiBaseUrl`, `ApiScope`, `BlobContainerUrl`; `IsHttpsOrigin` valida a origem externa |
+| `ServerTicketStore : ITicketStore` | Gera chave aleatoria; serializa tickets em IMemoryCache; Store/Renew/Retrieve/Remove; TTL acompanha expiração do ticket |
+| `IApiTokenProvider` / `ApiTokenProvider` | `GetAsync(ClaimsPrincipal)` pede o token para o scope da API com esquema **OpenIdConnect**, não Cookies |
+| `DocumentProxy` | `ForwardAsync` exige CSRF/JSON em POST, acrescenta token server-side e correlation ID, encaminha somente rotas permitidas, filtra headers e trata falhas de transporte |
+| `IStaticAssetStore` / `StaticAssetStore` | `GetAsync` baixa asset pelo Blob SDK; distingue 404 de falhas reais; usa MIME fixo da allowlist |
+| `StaticAsset` | Record com stream e content type para resposta do asset |
 
-## Servicos e modelos de documento
+O HttpClient não segue redirects nem usa cookies do upstream. As rotas dos três
+arquivos estáticos são fixas.
+`DocumentProxy` vincula o cancelamento do cliente a um prazo de 90 segundos para
+envio e cópia da resposta. Timeout retorna 504 antes dos headers de resposta ou
+aborta a conexão se a resposta já começou.
 
-| Classe | Responsabilidade | Metodos / membros |
-|--------|------------------|-------------------|
-| `DocumentService` | Orquestra as regras de aplicacao para criar e ler documentos. | `CreateAsync` valida campos, decodifica `PayloadBase64`, aplica limite de tamanho, identifica o usuario atual e delega a gravacao; `GetAsync` busca metadados, valida se o usuario e o receptor autorizado, le payload somente quando permitido e registra auditoria; `GetCorrelationId` recupera o correlation id da requisicao. |
-| `CreateDocumentRequest` | DTO de entrada para criacao de documento. | `ReceiverTenantId`, `ReceiverObjectId`, `FileName`, `ContentType`, `PayloadBase64`. |
-| `CreateDocumentResponse` | DTO de saida da criacao. | `DocumentId`. |
-| `ReadDocumentResponse` | DTO retornado na leitura autorizada. | `DocumentId`, `FileName`, `ContentType`, `PayloadBase64`, `CreatedAt`. |
-| `DocumentReadResult` | Resultado interno da leitura, separando status HTTP de payload. | `Status` indica `Found`, `NotFound` ou `Forbidden`; `Document` contem o DTO quando encontrado e autorizado. |
-| `DocumentReadStatus` | Enum que representa o resultado funcional da leitura. | `Found`, `NotFound`, `Forbidden`. |
+## API (`src\api`)
 
-## Acesso a dados
+| Tipo / arquivo | Responsabilidade e membros |
+|---|---|
+| `Program.cs` | Autenticação JWT, aquisição OBO, política `documents`, DI, ProblemDetails e endpoints internos |
+| `DocumentAuthorization` | `IsAllowed` exige autenticação, scope `user_impersonation` e, quando configurado, `AllowedClientId` correspondente a `azp`/`appid` |
+| `CurrentUser` | Record `TenantId`, `ObjectId`, `DisplayName`; `FromClaimsPrincipal`/`ReadGuidClaim` validam claims GUID |
+| `CurrentUserAccessor` | `GetRequiredUser` exige principal autenticado do HttpContext |
+| `DelegatedTokenCredential : TokenCredential` | `GetToken`/`GetTokenAsync` adaptam ITokenAcquisition para o provider Key Vault; `TryReadExpiry` le expiração do JWT |
+| `DocumentValidation` | `Decode` valida destinatário/metadados/Base64, tamanho codificado e bytes decodificados; erros 400/413 |
+| `DocumentService` | `CreateAsync` identifica sender e persiste; `GetAsync` consulta metadados, aplica ACL antes do payload e audita; `GetCorrelationId` recupera o ID da requisição |
+| `DocumentRepository` | `InsertAsync` + audit em transação; `GetMetadataAsync` sem payload; `GetPayloadAsync`; `MarkReadAsync` atualiza ReadAt + audit; overloads de `AuditAsync`; parâmetros SQL tipados |
+| `SqlConnectionFactory` | `OpenAsync` obtem token SQL delegado, registra provider AKV na conexão e abre SqlConnection com Always Encrypted |
+| `CorrelationIdMiddleware` | `InvokeAsync` aceita GUID válido de `x-correlation-id` ou gera outro, salva em Items e ecoa no header |
+| `SqlOptions` | Connection string, DatabaseScope e MaxDocumentBytes |
 
-| Classe | Responsabilidade | Metodos / membros |
-|--------|------------------|-------------------|
-| `DocumentRepository` | Encapsula comandos SQL para documentos e auditoria. | `InsertAsync` grava documento e evento `document_create` em transacao; `GetMetadataAsync` busca metadados sem retornar o payload criptografado; `GetPayloadAsync` le o payload com Always Encrypted habilitado; `MarkReadAsync` atualiza `ReadAt` e registra `document_read`; `AuditAsync` registra eventos de acesso; helpers privados `AddGuid`, `AddNullableGuid`, `AddString` e `AddBytes` tipam parametros SQL. |
-| `DocumentMetadata` | Record com metadados usados para autorizacao e resposta. | `DocumentId`, dados de sender/receiver, `FileName`, `ContentType`, `CreatedAt`. |
-| `SqlConnectionFactory` | Cria conexoes SQL autenticadas com token OBO e registra o provider de Always Encrypted para Azure Key Vault. | `OpenAsync` cria `SqlConnection`, registra `SqlColumnEncryptionAzureKeyVaultProvider`, obtem token delegado para `DatabaseScope`, atribui `AccessToken` e abre a conexao. |
+## Modelos de documentos
 
-## Seguranca
+| Record / enum | Campos |
+|---|---|
+| `CreateDocumentRequest` | ReceiverTenantId, ReceiverObjectId, FileName, ContentType, PayloadBase64 |
+| `CreateDocumentResponse` | DocumentId |
+| `ReadDocumentResponse` | DocumentId, FileName, ContentType, PayloadBase64, CreatedAt |
+| `DocumentMetadata` | DocumentId, sender/receiver tid+oid, FileName, ContentType, CreatedAt |
+| `DocumentReadResult` | Status e Document opcional |
+| `DocumentReadStatus` | Found, NotFound, Forbidden |
 
-| Classe | Responsabilidade | Metodos / membros |
-|--------|------------------|-------------------|
-| `CurrentUser` | Representa o usuario autenticado a partir de claims do Microsoft Entra ID. | `FromClaimsPrincipal` extrai `tid`, `oid` e nome exibivel; `ReadGuidClaim` valida claims GUID obrigatorias e falha com `UnauthorizedAccessException` quando ausentes ou invalidas. |
-| `CurrentUserAccessor` | Recupera o usuario atual do `HttpContext`. | `GetRequiredUser` exige identidade autenticada e retorna `CurrentUser`. |
-| `DelegatedTokenCredential` | Adapta `ITokenAcquisition` para `TokenCredential`, permitindo que o provider do Azure Key Vault use token delegado do usuario. | `GetToken` chama a versao assincrona de forma sincrona; `GetTokenAsync` exige usuario autenticado, solicita token para os scopes pedidos e retorna `AccessToken`; `TryReadExpiry` extrai expiracao do JWT. |
+`PayloadBase64` contém os bytes codificados para transporte. O driver cifra
+a coluna antes de enviar o comando SQL.
 
-## Configuracao
+## SPA (`src\spa`)
 
-| Classe | Responsabilidade | Metodos / membros |
-|--------|------------------|-------------------|
-| `SqlOptions` | Representa a secao `Sql` da configuracao. | `ConnectionString` aponta para o Azure SQL com `Column Encryption Setting=Enabled`; `DatabaseScope` define o scope OBO para Azure SQL; `MaxDocumentBytes` limita o tamanho do documento antes da gravacao. |
+`index.html` define formularios com GUIDs canonicos. `app.js` usa:
+
+- `refreshSession`: consulta estado, atualiza a tela e guarda antiforgery em memória.
+- `api`: fetch same-origin, no-store, cookies de sessão, CSRF e mensagens por status.
+- `run`: bloqueia o botao durante a operação e exibe falhas.
+- Handlers de envio/leitura/logout: Base64, comparação de limites, download como
+  `application/octet-stream`, nome seguro e revogação da URL Blob temporaria.
+
+Não existe MSAL no browser, localStorage/sessionStorage para tokens ou captura
+de senha. Conteúdo retornado não e inserido via `innerHTML`.
+
+## Operações (`src\operations`)
+
+`Program.cs` e um executavel de Job, não um endpoint HTTP. O modo funcional
+`bootstrap` publica assets e prepara schema/usuários reais, sem variáveis TEST.
+Os modos opcionais são `setup-validation`, `remove-validation`, `sender`,
+`reader`, `admin-with-key` e `admin-without-key`.
+Helpers locais: `Scalar`, `Execute`, `Insert`, `Payload`, `VerifyPlaintext`,
+`MustDenySql` e `IsKeyVaultForbidden`.
+
+O bootstrap consome o template SQL compartilhado e mantem client ID (SID SQL)
+das identidades de teste separado de object ID (usuários humanos/RBAC/ACL).
+`ApplicationUser.Parse` valida o JSON dos participantes e une as permissões do
+mesmo usuário. Os testes comparam o documento pelo ID e pelos bytes. As negações
+esperadas são SQL 229 e Key Vault 403/ForbiddenByRbac.
+O token SQL adquirido e mantido na variavel local para as conexões AE/raw; não e
+lido novamente do getter `AccessToken` após abrir a conexão.
+
+## Automacao e testes
+
+`azure-common.ps1` centraliza chamadas Azure CLI com verificação de exit code,
+subscription explícita e conferência do contexto antes de operações de diretório.
+Os scripts legados também usam esse helper e validam o tenant quando informado.
+`aks-common.ps1` o carrega e acrescenta kubectl, renderização e Jobs.
+`deploy-aks.ps1` provisiona recursos, constroi imagens e aplica workloads;
+`test-aks.ps1` verifica o ambiente e, com `-IncludeSegregation`, executa os
+testes diretos SQL/Key Vault. `setup-validation.ps1` e `remove-validation.ps1`
+administram somente recursos/grants opcionais.
+Os scripts usam Azure CLI e kubectl. [Procedimento de deploy](deploy.md).
+
+`New-DeploymentState` preserva tags construidas em atualizacoes de infraestrutura;
+`Assert-PublishedImages` impede publicar tags inexistentes. `certificate.py`
+executa Certbot e sincroniza o Secret tanto em renovação como em reutilizacao.
+`Render-Manifest` grava a revisão SHA-256 no pod template para aplicar mudanças
+de configuração sem exigir nova tag de imagem.
+
+Os testes estão em `src\api.Tests`, `src\bff.Tests`, `src\operations.Tests`,
+`tests\scripts`, `tests\python` e `tests\browser`.
+[Execução e cobertura](validacao.md).

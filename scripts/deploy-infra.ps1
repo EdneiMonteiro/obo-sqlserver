@@ -1,3 +1,9 @@
+<#
+.SYNOPSIS
+Legacy ACA infrastructure deployment. For the primary architecture use deploy-aks.ps1.
+.LINK
+../docs/legacy/aca.md
+#>
 param(
     [Parameter(Mandatory = $true)]
     [string] $SubscriptionId,
@@ -13,17 +19,16 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot\azure-common.ps1"
 
 if (-not (Test-Path -LiteralPath $ParametersFile)) {
     throw "Parameters file not found: $ParametersFile. Copy infra\bicep\main.parameters.json.example first."
 }
 
-az account set --subscription $SubscriptionId
-az group create --name $ResourceGroupName --location $Location --only-show-errors | Out-Host
+Initialize-AzureContext -SubscriptionId $SubscriptionId
+Invoke-Az group create --name $ResourceGroupName --location $Location | Out-Host
 
-az deployment group create `
+Invoke-Az deployment group create `
     --resource-group $ResourceGroupName `
     --template-file ".\infra\bicep\main.bicep" `
-    --parameters "@$ParametersFile" `
-    --only-show-errors | Out-Host
-
+    --parameters "@$ParametersFile" | Out-Host

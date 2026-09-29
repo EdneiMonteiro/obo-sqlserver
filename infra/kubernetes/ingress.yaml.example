@@ -1,0 +1,118 @@
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata: { name: obo-web, namespace: aks-istio-ingress }
+spec:
+  selector: { istio: aks-istio-ingressgateway-external }
+  servers:
+    - port: { number: 80, name: http, protocol: HTTP }
+      hosts: ["__PUBLIC_HOST__"]
+    - port: { number: 443, name: https, protocol: HTTPS }
+      hosts: ["__PUBLIC_HOST__"]
+      tls:
+        mode: SIMPLE
+        credentialName: obo-tls
+        minProtocolVersion: TLSV1_2
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata: { name: obo-web, namespace: aks-istio-ingress }
+spec:
+  hosts: ["__PUBLIC_HOST__"]
+  gateways: [obo-web]
+  http:
+    - match:
+        - port: 80
+          uri: { prefix: /.well-known/acme-challenge/ }
+      route:
+        - destination:
+            host: obo-acme.aks-istio-ingress.svc.cluster.local
+            port: { number: 8080 }
+    - match: [{ port: 80 }]
+      redirect: { scheme: https, redirectCode: 301 }
+    - match: [{ port: 443 }]
+      route:
+        - destination:
+            host: bff.obo.svc.cluster.local
+            port: { number: 8080 }
+      timeout: 100s
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: obo-acme, namespace: aks-istio-ingress }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: obo-certificate-writer, namespace: aks-istio-ingress }
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [obo-tls]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: obo-certificate-writer, namespace: aks-istio-ingress }
+subjects: [{ kind: ServiceAccount, name: obo-acme, namespace: aks-istio-ingress }]
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: obo-certificate-writer }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: obo-acme, namespace: aks-istio-ingress }
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: managed-csi
+  resources: { requests: { storage: 1Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: obo-acme, namespace: aks-istio-ingress }
+spec:
+  selector: { app: obo-acme }
+  ports: [{ name: http, port: 8080, targetPort: 8080 }]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: obo-acme, namespace: aks-istio-ingress }
+spec:
+  schedule: "17 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels: { app: obo-acme }
+          annotations: { sidecar.istio.io/inject: "false" }
+        spec:
+          serviceAccountName: obo-acme
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: certbot
+              image: certbot/certbot:v5.0.0
+              command: ["python", "/hooks/certificate.py"]
+              env: [{ name: PUBLIC_HOST, value: "__PUBLIC_HOST__" }]
+              ports: [{ containerPort: 8080 }]
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: { drop: ["ALL"] }
+              resources:
+                requests: { cpu: 50m, memory: 128Mi }
+                limits: { cpu: 500m, memory: 256Mi }
+              volumeMounts:
+                - { name: certs, mountPath: /etc/letsencrypt }
+                - { name: work, mountPath: /var/lib/letsencrypt }
+                - { name: logs, mountPath: /var/log/letsencrypt }
+                - { name: hook, mountPath: /hooks, readOnly: true }
+          volumes:
+            - { name: certs, persistentVolumeClaim: { claimName: obo-acme } }
+            - { name: work, emptyDir: {} }
+            - { name: logs, emptyDir: {} }
+            - { name: hook, configMap: { name: obo-acme-hook } }

@@ -1,0 +1,11 @@
+{
+  "name": "obo-sqlserver-browser-tests",
+  "private": true,
+  "scripts": {
+    "test": "playwright test --project ui",
+    "test:live": "playwright test --project live --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

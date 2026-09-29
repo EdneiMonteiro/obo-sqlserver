@@ -1,11 +1,14 @@
 cff-version: 1.2.0
-message: "If you use this proof of concept, please cite it as below."
-title: "Azure SQL OBO PoC with Always Encrypted and Azure Key Vault"
+message: "Citation metadata for this example."
+title: "Azure SQL OBO PoC with AKS, Istio, BFF, Private Blob Storage and Always Encrypted"
+abstract: >-
+  Document upload and retrieval using a browser SPA, BFF sessions, AKS,
+  Istio, OAuth On-Behalf-Of, Azure SQL Always Encrypted and Azure Key Vault.
+  Includes deployment scripts and integration tests.
 authors:
   - family-names: "Monteiro"
     given-names: "Ednei"
-orcid: "https://orcid.org/0009-0006-0765-4201"
+    orcid: "https://orcid.org/0009-0006-0765-4201"
 repository-code: "https://github.com/EdneiMonteiro/obo-sqlserver"
 date-released: "2026-06-12"
 license: "MIT"
-

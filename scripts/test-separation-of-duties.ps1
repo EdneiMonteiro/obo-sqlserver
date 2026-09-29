@@ -1,3 +1,10 @@
+<#
+.SYNOPSIS
+Legacy direct SQL demonstration; not the AKS browser/OBO test.
+Use test-aks.ps1 for the current exact-fixture tests.
+.LINK
+../docs/legacy/aca.md
+#>
 param(
     [Parameter(Mandatory=$true)] [string] $SqlFqdn,
     [Parameter(Mandatory=$true)] [string] $Database,
@@ -5,10 +12,11 @@ param(
     [Parameter(Mandatory=$true)] [string] $SecretsFile
 )
 
-# Reproduces the separation-of-duties end-to-end test.
-# See docs/separation-of-duties.md for context.
+# See docs/legacy/aca.md for the limitations of this historical test.
 
-$ErrorActionPreference = 'Continue'
+$ErrorActionPreference = 'Stop'
+. "$PSScriptRoot\azure-common.ps1"
+Initialize-AzureContext -TenantId $TenantId
 Import-Module SqlServer -Force
 
 $secrets = Get-Content -LiteralPath $SecretsFile -Raw | ConvertFrom-Json
@@ -134,10 +142,10 @@ try {
 }
 
 Write-Host "===== E1: current az login user SELECT (admin) ====="
-$edneiSql = az account get-access-token --resource 'https://database.windows.net' --query accessToken -o tsv --only-show-errors
-$edneiKv  = az account get-access-token --resource 'https://vault.azure.net'     --query accessToken -o tsv --only-show-errors
+$adminSql = Invoke-Az account get-access-token --resource 'https://database.windows.net' --query accessToken -o tsv
+$adminKv  = Invoke-Az account get-access-token --resource 'https://vault.azure.net'     --query accessToken -o tsv
 try {
-    $r = Invoke-WithAE $edneiSql $edneiKv "SELECT TOP 1 DocumentId, FileName, EncryptedPayload FROM dbo.Documents ORDER BY CreatedAt DESC" @{}
+    $r = Invoke-WithAE $adminSql $adminKv "SELECT TOP 1 DocumentId, FileName, EncryptedPayload FROM dbo.Documents ORDER BY CreatedAt DESC" @{}
     if ($r.Count -gt 0) {
         $row = $r[0]
         $dec = [Text.Encoding]::UTF8.GetString($row.EncryptedPayload)

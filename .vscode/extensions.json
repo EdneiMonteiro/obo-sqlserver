@@ -3,9 +3,9 @@
     "ms-dotnettools.csdevkit",
     "ms-dotnettools.csharp",
     "ms-azuretools.vscode-bicep",
+    "ms-kubernetes-tools.vscode-kubernetes-tools",
     "ms-azuretools.vscode-azurecontainerapps",
     "ms-vscode.powershell",
     "github.vscode-github-actions"
   ]
 }
-

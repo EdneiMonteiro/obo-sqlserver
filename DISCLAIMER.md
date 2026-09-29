@@ -1,84 +1,31 @@
-# Aviso Legal (Disclaimer)
+# Aviso legal
 
-Este repositorio contem codigo de exemplo, demonstracoes e uma prova de conceito fornecidos exclusivamente para fins ilustrativos, educacionais e experimentais.
+Este repositório contém código de exemplo para uso educacional e experimental.
+Não foi desenvolvido para uso direto em produção.
 
-## Nao destinado a producao
+## Licença e garantias
 
-Este codigo **nao foi desenvolvido para uso direto em producao**.
+O código é fornecido no estado em que se encontra, sem garantias expressas ou
+implícitas, incluindo comercialização, adequação a uma finalidade específica
+e não violação de direitos. Aplicam-se os termos da [licença MIT](LICENSE).
 
-Ele pode nao atender requisitos essenciais de um ambiente produtivo, como:
+O autor não se responsabiliza por perda de dados, interrupções, falhas
+operacionais ou impactos financeiros decorrentes do uso. Cabe ao usuário
+revisar permissões, testar o funcionamento, avaliar o impacto nos dados e
+preparar procedimentos de recuperação.
 
-- Seguranca
-- Alta disponibilidade
-- Recuperacao de desastres
-- Monitoramento
-- Logging adequado
-- Performance
-- Conformidade regulatoria
+## Suporte
 
-## Sem garantias
+O projeto não é afiliado, endossado ou suportado oficialmente pela Microsoft.
+Não há SLA ou compromisso de correção, atualização, suporte ou compatibilidade
+futura. Dependências e APIs podem mudar e afetar o funcionamento.
 
-TODO O CODIGO E FORNECIDO **"NO ESTADO EM QUE SE ENCONTRA"**, SEM GARANTIAS DE QUALQUER TIPO, EXPRESSAS OU IMPLICITAS, INCLUINDO, MAS NAO SE LIMITANDO A:
+## Dados sensíveis e produção
 
-- Comercializacao
-- Adequacao a um proposito especifico
-- Nao violacao de direitos
+BFF e API processam plaintext nas operações autorizadas. Administradores do
+runtime podem acessar esses dados. O exemplo não oferece E2EE estrito.
 
-## Sem suporte oficial da Microsoft
-
-Este projeto:
-
-- Nao e afiliado a Microsoft
-- Nao e endossado pela Microsoft
-- Nao possui suporte oficial da Microsoft
-
-## Sem compromisso de suporte
-
-O autor/mantenedor nao se compromete a:
-
-- Corrigir bugs
-- Atualizar o projeto
-- Fornecer suporte
-- Manter compatibilidade futura
-
-Qualquer melhoria sera feita **quando e se houver disponibilidade**.
-
-## Uso por sua conta e risco
-
-Ao utilizar este codigo, voce concorda que:
-
-- E responsavel por validar o funcionamento
-- Deve testar em ambiente nao produtivo
-- Assume todos os riscos associados
-
-O autor nao se responsabiliza por:
-
-- Perda de dados
-- Interrupcao de servicos
-- Falhas operacionais
-- Impactos financeiros
-
-## Dependencias e mudancas externas
-
-Este codigo pode depender de APIs e servicos que podem mudar sem aviso previo, o que pode causar:
-
-- Quebra de funcionalidade
-- Comportamentos inesperados
-
-## Responsabilidade do usuario
-
-Antes de utilizar, voce deve:
-
-- Entender completamente o que o codigo faz
-- Revisar permissoes e acessos
-- Validar impacto em dados
-- Garantir que ha rollback possivel
-
-## Uso com dados sensiveis
-
-Esta PoC trata cenarios de criptografia e identidade para dados sensiveis. Ela nao substitui revisao formal de seguranca, privacidade, conformidade, ameacas, LGPD ou arquitetura antes de qualquer uso real com dados de cliente.
-
-## Licenca
-
-O uso deste codigo tambem segue os termos definidos no arquivo [LICENSE](./LICENSE).
-
+Antes de usar dados reais, revise segurança, privacidade/LGPD, conformidade,
+disponibilidade, recuperação, monitoramento e desempenho.
+Consulte o [modelo de ameaças](docs/modelo-ameacas.md) e a
+[cobertura dos testes](docs/validacao.md).

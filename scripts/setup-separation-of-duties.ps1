@@ -1,3 +1,10 @@
+<#
+.SYNOPSIS
+Legacy direct SQL demonstration with service principal secrets.
+Current AKS tests use four federated managed identities and private Jobs.
+.LINK
+../docs/legacy/aca.md
+#>
 param(
     [Parameter(Mandatory=$true)] [string] $SubscriptionId,
     [Parameter(Mandatory=$true)] [string] $ResourceGroupName,
@@ -18,15 +25,15 @@ param(
 # boundary protecting plaintext from a SQL admin.
 
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot\azure-common.ps1"
+Initialize-AzureContext -SubscriptionId $SubscriptionId -TenantId $TenantId
 Import-Module SqlServer -Force
 
-az account set --subscription $SubscriptionId | Out-Null
-
 function Ensure-Sp($name) {
-    $existing = az ad app list --display-name $name --query "[0]" -o json --only-show-errors | ConvertFrom-Json
+    $existing = Invoke-Az ad app list --display-name $name --query "[0]" -o json | ConvertFrom-Json
     if (-not $existing) {
-        $app = az ad app create --display-name $name --sign-in-audience AzureADMyOrg --only-show-errors -o json | ConvertFrom-Json
-        az ad sp create --id $app.appId --only-show-errors | Out-Null
+        $app = Invoke-Az ad app create --display-name $name --sign-in-audience AzureADMyOrg -o json | ConvertFrom-Json
+        Invoke-Az ad sp create --id $app.appId | Out-Null
         Write-Host "Created app+sp $name appId=$($app.appId)"
         return $app
     }
@@ -37,11 +44,11 @@ function Ensure-Sp($name) {
 $senderApp = Ensure-Sp $SenderName
 $readerApp = Ensure-Sp $ReaderName
 
-$senderSecret = az ad app credential reset --id $senderApp.appId --append --display-name 'poc' --years 1 --only-show-errors -o json | ConvertFrom-Json
-$readerSecret = az ad app credential reset --id $readerApp.appId --append --display-name 'poc' --years 1 --only-show-errors -o json | ConvertFrom-Json
+$senderSecret = Invoke-Az ad app credential reset --id $senderApp.appId --append --display-name 'poc' --years 1 -o json | ConvertFrom-Json
+$readerSecret = Invoke-Az ad app credential reset --id $readerApp.appId --append --display-name 'poc' --years 1 -o json | ConvertFrom-Json
 
-$senderOid = az ad sp show --id $senderApp.appId --query id -o tsv
-$readerOid = az ad sp show --id $readerApp.appId --query id -o tsv
+$senderOid = Invoke-Az ad sp show --id $senderApp.appId --query id -o tsv
+$readerOid = Invoke-Az ad sp show --id $readerApp.appId --query id -o tsv
 
 @{
     sender = @{ appId = $senderApp.appId; oid = $senderOid; secret = $senderSecret.password };
@@ -49,13 +56,13 @@ $readerOid = az ad sp show --id $readerApp.appId --query id -o tsv
 } | ConvertTo-Json -Depth 4 | Out-File -LiteralPath $SecretsOutputPath -Encoding utf8
 Write-Host "Secrets and metadata written to $SecretsOutputPath (NEVER commit)."
 
-$kvId = az keyvault show -g $ResourceGroupName -n $KeyVaultName --query id -o tsv
+$kvId = Invoke-Az keyvault show -g $ResourceGroupName -n $KeyVaultName --query id -o tsv
 foreach ($oid in @($senderOid, $readerOid)) {
-    az role assignment create --assignee-object-id $oid --assignee-principal-type ServicePrincipal --role 'Key Vault Crypto User' --scope $kvId --only-show-errors -o none 2>$null
+    Ensure-AzureRoleAssignment -ObjectId $oid -Role 'Key Vault Crypto User' -Scope $kvId
 }
 Write-Host "Key Vault Crypto User granted on $KeyVaultName."
 
-$sqlToken = az account get-access-token --resource 'https://database.windows.net' --query accessToken -o tsv --only-show-errors
+$sqlToken = Invoke-Az account get-access-token --resource 'https://database.windows.net' --query accessToken -o tsv
 $cs = "Server=tcp:$SqlServerFqdn,1433;Database=$DatabaseName;Encrypt=True;TrustServerCertificate=False;"
 $ddl = @"
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$SenderName')

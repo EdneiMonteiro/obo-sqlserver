@@ -2,6 +2,7 @@
 bin/
 obj/
 TestResults/
+__pycache__/
 coverage/
 *.trx
 *.coverage
@@ -23,6 +24,17 @@ appsettings.Development.local.json
 *.secrets.json
 *.parameters.local.json
 *.local.json
+*.local.txt
+*.local.yaml
+*.local.yml
+*.pem
+*.pfx
+*.key
+kubeconfig*
+.local/
+node_modules/
+playwright-report/
+test-results/
 *.tfvars
 *.env
 .env.*
@@ -33,6 +45,9 @@ appsettings.Development.local.json
 terraform.tfstate*
 *.tfplan
 infra/bicep/main.json
+infra/bicep/aks.json
+infra/bicep/private-endpoint.json
+infra/bicep/validation.json
 infra/**/bicepconfig.local.json
 
 # IDE / OS

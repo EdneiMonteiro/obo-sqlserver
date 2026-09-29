@@ -1,3 +1,10 @@
+<#
+.SYNOPSIS
+Legacy/local Always Encrypted setup requiring direct SQL/Key Vault connectivity.
+The AKS path uses the private bootstrap Job in src/operations instead.
+.LINK
+../docs/legacy/aca.md
+#>
 param(
     [Parameter(Mandatory = $true)] [string] $SqlServerFqdn,
     [Parameter(Mandatory = $true)] [string] $DatabaseName,
@@ -7,12 +14,14 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot\azure-common.ps1"
+Initialize-AzureContext
 Import-Module SqlServer -Force
 
 $cs = "Server=tcp:$SqlServerFqdn,1433;Database=$DatabaseName;Encrypt=True;TrustServerCertificate=False;"
 
 Write-Host "Acquiring SQL token..."
-$sqlToken = az account get-access-token --resource 'https://database.windows.net' --query accessToken -o tsv --only-show-errors
+$sqlToken = Invoke-Az account get-access-token --resource 'https://database.windows.net' --query accessToken -o tsv
 if (-not $sqlToken) { throw "Failed to obtain SQL token." }
 
 function Invoke-Sql([string]$query) {
@@ -41,7 +50,7 @@ public class StaticTokenCredential : TokenCredential
 }
 "@
 
-$kvTokenInfo = az account get-access-token --resource 'https://vault.azure.net' -o json --only-show-errors | ConvertFrom-Json
+$kvTokenInfo = Invoke-Az account get-access-token --resource 'https://vault.azure.net' -o json | ConvertFrom-Json
 $kvCred = [StaticTokenCredential]::new($kvTokenInfo.accessToken, [DateTimeOffset]::Parse($kvTokenInfo.expiresOn))
 
 $cmkExists = (Invoke-Sql "SELECT COUNT(*) AS c FROM sys.column_master_keys WHERE name = N'$CmkName'").c -gt 0

@@ -1,3 +1,9 @@
+<#
+.SYNOPSIS
+Legacy ACA image, registry and client-secret configuration; not used by AKS.
+.LINK
+../docs/legacy/aca.md
+#>
 param(
     [Parameter(Mandatory = $true)] [string] $SubscriptionId,
     [Parameter(Mandatory = $true)] [string] $ResourceGroupName,
@@ -11,30 +17,26 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-az account set --subscription $SubscriptionId
+. "$PSScriptRoot\azure-common.ps1"
+Initialize-AzureContext -SubscriptionId $SubscriptionId -TenantId $TenantId
 
-$identityId       = az identity show -g $ResourceGroupName -n $ManagedIdentityName --query id          -o tsv
-$identityPrincipal = az identity show -g $ResourceGroupName -n $ManagedIdentityName --query principalId -o tsv
-$acrResourceId    = az acr show       -g $ResourceGroupName -n $AcrName             --query id          -o tsv
+$identityId       = Invoke-Az identity show -g $ResourceGroupName -n $ManagedIdentityName --query id          -o tsv
+$identityPrincipal = Invoke-Az identity show -g $ResourceGroupName -n $ManagedIdentityName --query principalId -o tsv
+$acrResourceId    = Invoke-Az acr show       -g $ResourceGroupName -n $AcrName             --query id          -o tsv
 
 Write-Host "Granting AcrPull on $AcrName to $ManagedIdentityName ..."
-az role assignment create `
-    --assignee-object-id $identityPrincipal `
-    --assignee-principal-type ServicePrincipal `
-    --role AcrPull `
-    --scope $acrResourceId `
-    --only-show-errors -o none 2>$null
+Ensure-AzureRoleAssignment -ObjectId $identityPrincipal -Role AcrPull -Scope $acrResourceId
 
-$loginServer = az acr show -g $ResourceGroupName -n $AcrName --query loginServer -o tsv
+$loginServer = Invoke-Az acr show -g $ResourceGroupName -n $AcrName --query loginServer -o tsv
 
 Write-Host "Configuring ACR registry on the Container App with user-assigned identity..."
-az containerapp registry set -g $ResourceGroupName -n $ContainerAppName --server $loginServer --identity $identityId --only-show-errors -o none
+Invoke-Az containerapp registry set -g $ResourceGroupName -n $ContainerAppName --server $loginServer --identity $identityId -o none
 
 if (-not (Test-Path -LiteralPath $ClientSecretFile)) { throw "Client secret file not found: $ClientSecretFile" }
 $clientSecret = (Get-Content -LiteralPath $ClientSecretFile -Raw).Trim()
 
 Write-Host "Setting Container App secret 'azuread-client-secret'..."
-az containerapp secret set -g $ResourceGroupName -n $ContainerAppName --secrets "azuread-client-secret=$clientSecret" --only-show-errors -o none
+Invoke-Az containerapp secret set -g $ResourceGroupName -n $ContainerAppName --secrets "azuread-client-secret=$clientSecret" -o none
 
 Write-Host "Updating image and environment variables..."
 $envVars = @(
@@ -44,7 +46,7 @@ $envVars = @(
     "AzureAd__ClientSecret=secretref:azuread-client-secret",
     "Sql__MaxDocumentBytes=10485760"
 )
-az containerapp update -g $ResourceGroupName -n $ContainerAppName --image $Image --set-env-vars $envVars --only-show-errors -o none
+Invoke-Az containerapp update -g $ResourceGroupName -n $ContainerAppName --image $Image --set-env-vars $envVars -o none
 
-$fqdn = az containerapp show -g $ResourceGroupName -n $ContainerAppName --query properties.configuration.ingress.fqdn -o tsv
+$fqdn = Invoke-Az containerapp show -g $ResourceGroupName -n $ContainerAppName --query properties.configuration.ingress.fqdn -o tsv
 Write-Host "Container App updated. URL: https://$fqdn"

@@ -1,6 +1,13 @@
 /*
-    Run with a SQL admin connection that does not have Key Vault key permissions.
-    Expected result: EncryptedPayload is not readable as plaintext.
+    Diagnostic queries, not an automated proof of the full BFF/OBO flow.
+    In AKS, execute through an authorized client inside the private network.
+
+    For the raw ciphertext query below, disable Always Encrypted on the client.
+    With AE enabled, an admin without Key Vault permission should fail to unwrap,
+    not return plaintext. See src/operations and docs/separation-of-duties.md
+    for the exact-fixture positive and negative controls.
+
+    Audit output contains identity metadata: redact it before sharing.
 */
 
 SELECT TOP (10)
@@ -30,4 +37,3 @@ SELECT TOP (50)
 FROM dbo.DocumentAccessAudit
 ORDER BY CreatedAt DESC;
 GO
-

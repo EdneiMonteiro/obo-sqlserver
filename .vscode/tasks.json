@@ -44,17 +44,69 @@
       "args": [
         "run",
         "--project",
-        "src/api/OboSqlServer.Api.csproj"
+        "src\\api\\OboSqlServer.Api.csproj"
       ],
       "isBackground": true,
       "problemMatcher": "$msCompile"
     },
     {
+      "label": "bff: run",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "src\\bff\\OboSqlServer.Bff.csproj"],
+      "isBackground": true,
+      "problemMatcher": "$msCompile"
+    },
+    {
       "label": "bicep: build",
-      "type": "shell",
-      "command": "az bicep build --file infra/bicep/main.bicep",
+      "dependsOn": ["bicep: AKS"],
+      "dependsOrder": "sequence",
       "problemMatcher": []
+    },
+    {
+      "label": "bicep: AKS",
+      "type": "process",
+      "command": "az",
+      "args": ["bicep", "build", "--file", "infra\\bicep\\aks.bicep"],
+      "problemMatcher": []
+    },
+    {
+      "label": "optional validation: bicep build",
+      "type": "process",
+      "command": "az",
+      "args": ["bicep", "build", "--file", "infra\\bicep\\validation.bicep"],
+      "problemMatcher": []
+    },
+    {
+      "label": "legacy ACA: bicep build",
+      "type": "process",
+      "command": "az",
+      "args": ["bicep", "build", "--file", "infra\\bicep\\main.bicep"],
+      "problemMatcher": []
+    },
+    {
+      "label": "browser: UI",
+      "type": "shell",
+      "command": "npm test",
+      "options": { "cwd": "${workspaceFolder}\\tests\\browser" },
+      "problemMatcher": []
+    },
+    {
+      "label": "browser: live",
+      "type": "shell",
+      "command": "npm run test:live",
+      "options": {
+        "cwd": "${workspaceFolder}\\tests\\browser",
+        "env": { "OBO_BASE_URL": "${input:oboBaseUrl}" }
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "oboBaseUrl",
+      "type": "promptString",
+      "description": "Origem HTTPS da PoC para o teste live (sem tokens ou query string)"
     }
   ]
 }
-

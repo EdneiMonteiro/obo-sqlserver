@@ -1,3 +1,5 @@
+// Legacy ACA alternative. The primary AKS/BFF deployment is in aks.bicep.
+// See docs/legacy/aca.md; do not apply this networking model to the AKS data services.
 targetScope = 'resourceGroup'
 
 @description('Azure region for the PoC resources.')
