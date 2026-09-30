@@ -41,6 +41,10 @@ npm test
 A geração exige Node.js 20+ e Chromium do Playwright. A leitura exige apenas um
 navegador com JavaScript.
 
+O override de `lodash-es` usa `4.18.1` para corrigir os alertas de dependência.
+Ele substitui a versão `4.17.23` fixada pelas dependências do parser usado pelo
+Mermaid.
+
 Não edite o HTML gerado manualmente. Os testes comparam os hashes das fontes
 para detectar conteúdo desatualizado. O build não lê `.local`, kubeconfigs ou
 arquivos de segredos.
