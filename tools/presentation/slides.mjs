@@ -364,11 +364,11 @@ export const slides = [
     id: "evidencia", chapter: "validacao", title: "Testes executados e testes pendentes",
     cards: [
       { label: "Azure", title: "Rodada de 23/09/2026", text: "Login, OBO, upload/download e segregação SQL/Key Vault foram executados no ambiente de teste." },
-      { label: "Azure", title: "Novo deploy em 29/09/2026", text: "Infraestrutura, bootstrap, TLS e smoke tests concluídos. O E2E autenticado passou: upload/download, destinatário negado, CSRF e logout." },
+      { label: "Azure", title: "Lab atualizado em 30/09/2026", text: "Recriado em 29/09 e atualizado em 30/09. Rollout por configuração, timeout de 90 s e novo E2E autenticado passaram." },
       { label: "Pendente", title: "Carga e recuperação", text: "Não foram executados testes de carga, HA, pentest completo ou um ciclo inteiro de renovação ACME." }
     ],
     sources: [docs.tests, docs.threats],
-    notes: "Na implantação de 29/09, foi corrigido o tipo imutável do Secret TLS. Os ajustes posteriores de rollout por configuração, timeout do proxy e falhas do CLI legado passaram pelos testes locais, sem republicação no lab."
+    notes: "A correção TLS foi aplicada em 29/09. Em 30/09, o rollout manteve os digests das imagens; a sonda de timeout usou a mesma DLL do BFF publicado e reproduziu o defeito com a imagem anterior. Os scripts ACA têm regressões locais, sem novo deploy legado."
   },
   {
     id: "estado", chapter: "validacao", title: "Estado de implantação e tags",

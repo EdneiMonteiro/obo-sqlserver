@@ -46,7 +46,34 @@ O E2E foi concluído em 29/09/2026 após login manual, sem republicar a aplicaç
 
 Após esse E2E, as correções de rollout por configuração, timeout completo do proxy
 e tratamento de falhas do Azure CLI legado foram verificadas localmente.
-Esses três ajustes não foram republicados no lab desta rodada.
+As duas correções do AKS foram aplicadas e verificadas no dia seguinte.
+
+### Atualização incremental em 30/09/2026
+
+API e BFF foram atualizados para o código do commit `b078cd0`, sem recriar a
+infraestrutura. O bootstrap SQL, os grants e o certificado existente foram
+preservados.
+
+| Verificação | Resultado observado |
+|---|---|
+| ConfigMap alterado, imagens mantidas | BFF e API receberam novos UIDs de pod, com os mesmos digests de imagem; o valor foi conferido no ambiente dos processos |
+| Manifesto idêntico reaplicado | UIDs dos pods preservados, sem restart |
+| Configuração original restaurada | Marcador de teste removido; workloads prontos |
+| Headers enviados sem corpo | Proxy retornou HTTP 504 em 90,014 s |
+| Corpo parcial | Cliente recebeu um byte; conexão abortada em 90,007 s, sem concluir a resposta |
+| Controle com imagem anterior | Com timeout de 2 s, ambas as transferências continuavam pendentes após 5 s, reproduzindo o defeito |
+| Smoke interno e externo | Blob privado com 409/PublicAccessNotPermitted dentro da VNet e 403 fora; API anônima com 401 |
+| E2E autenticado após atualização | PASS: login Entra, OBO, bytes idênticos, destinatário negado, CSRF, isolamento de tokens e logout |
+
+A sonda de timeout executou em Job isolado, com a DLL da imagem publicada.
+O SHA-256 foi comparado com o arquivo no pod do BFF. Um upstream HTTP controlado
+enviou os headers com `FlushAsync` e reteve o restante da resposta. A sonda usou
+credencial sintética e o mesmo limite de 90 segundos do BFF, sem alterar suas
+rotas públicas. A resposta rápida manteve os bytes e retornou HTTP 200.
+
+Os scripts ACA permanecem cobertos pelas regressões locais. Não foi criado
+um ambiente ACA nem foram executados novamente os testes opcionais de
+segregação SQL/Key Vault.
 
 ## 1. Testes locais
 
