@@ -364,11 +364,11 @@ export const slides = [
     id: "evidencia", chapter: "validacao", title: "Testes executados e testes pendentes",
     cards: [
       { label: "Azure", title: "Rodada de 23/09/2026", text: "Login, OBO, upload/download e segregação SQL/Key Vault foram executados no ambiente de teste." },
-      { label: "Azure", title: "Lab atualizado em 30/09/2026", text: "Recriado em 29/09 e atualizado em 30/09. Rollout por configuração, timeout de 90 s e novo E2E autenticado passaram." },
+      { label: "Azure", title: "Validação concluída em 30/09/2026", text: "Rollout por configuração, timeout de 90 s e E2E autenticado passaram. O lab foi desprovisionado após os testes." },
       { label: "Pendente", title: "Carga e recuperação", text: "Não foram executados testes de carga, HA, pentest completo ou um ciclo inteiro de renovação ACME." }
     ],
     sources: [docs.tests, docs.threats],
-    notes: "A correção TLS foi aplicada em 29/09. Em 30/09, o rollout manteve os digests das imagens; a sonda de timeout usou a mesma DLL do BFF publicado e reproduziu o defeito com a imagem anterior. Os scripts ACA têm regressões locais, sem novo deploy legado."
+    notes: "O rollout manteve os digests das imagens; a sonda usou a DLL publicada e um controle com a imagem anterior. Lab e aplicações Entra removidos em 30/09; Key Vault em soft delete até 07/10. Os scripts ACA têm regressões locais, sem novo deploy legado."
   },
   {
     id: "estado", chapter: "validacao", title: "Estado de implantação e tags",

@@ -3,6 +3,8 @@
 Testes do lab AKS/BFF: verificações locais, E2E no navegador e conexões diretas
 SQL/Key Vault. Os resultados locais e os obtidos no Azure estão separados abaixo.
 
+O lab Azure foi desprovisionado em 30/09/2026, após concluir as validações.
+
 ## Camadas e resultados
 
 | Camada | Execução | Evidencia observada |
@@ -14,7 +16,7 @@ SQL/Key Vault. Os resultados locais e os obtidos no Azure estão separados abaix
 | E2E real de referência (23/09/2026) | Playwright `npm run test:live` | Login Entra, OBO, arquivo identico, negação, CSRF, sessão e logout: PASS |
 | SQL/Key Vault reais de referência | Quatro Jobs no AKS | S1/S2, R1/R2, E1/E2: PASS |
 | Blob | Sondas interna/externa e propriedades ARM | Público desabilitado; respostas esperadas 409 e 403 |
-| Operação | Verificação posterior | Bootstrap Secret ausente e site online |
+| Operação | Verificação antes do encerramento | Bootstrap Secret ausente e HTTPS disponível |
 
 Após a rodada Azure, o bootstrap de participantes, o setup/teardown opcional
 e a recuperação de tags/TLS foram alterados e testados localmente.
@@ -74,6 +76,16 @@ rotas públicas. A resposta rápida manteve os bytes e retornou HTTP 200.
 Os scripts ACA permanecem cobertos pelas regressões locais. Não foi criado
 um ambiente ACA nem foram executados novamente os testes opcionais de
 segregação SQL/Key Vault.
+
+### Encerramento do lab em 30/09/2026
+
+Foi confirmada a exclusão do RG do lab e do RG gerenciado pelo AKS, com os
+respectivos recursos de computação, rede, armazenamento e banco. As aplicações
+Entra da API e do BFF e seus service principals ativos também foram removidos.
+
+O Key Vault permaneceu em soft delete, com purge protection e retenção de sete
+dias. O expurgo está previsto para 07/10/2026. O código, os scripts e as
+evidências dos testes foram preservados; o endpoint desse lab não está mais ativo.
 
 ## 1. Testes locais
 
