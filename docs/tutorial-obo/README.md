@@ -162,6 +162,19 @@ locais; o lab real usa SPA → BFF → API → AKS com Workload Identity federad
 (sem client secret) e TLS público. A mecânica OBO (duas trocas de token
 encadeadas, mesmo usuário do início ao fim) é idêntica.
 
+## Apresentação (PowerPoint)
+
+`docs/tutorial-obo/tutorial-obo.pptx` resume este guia em slides (objetivo,
+pré-requisitos, Camada 0, Camada 1, Camada 2 com comandos e saída esperada,
+mapeamento para o código real e limpeza). Para regenerar após editar este
+README:
+
+```powershell
+python docs\tutorial-obo\gerar-apresentacao.py
+```
+
+Requer o pacote `python-pptx` (`pip install python-pptx`).
+
 ## Limpeza
 
 Ao terminar de validar, reverta os ajustes temporários da Camada 0:
