@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>b8c0d20a-36b2-4b28-bc15-cfaad72267bf</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Identity.Web" Version="4.8.0" />
+    <PackageReference Include="Microsoft.Identity.Web.TokenCache" Version="4.8.0" />
+  </ItemGroup>
+
+</Project>
