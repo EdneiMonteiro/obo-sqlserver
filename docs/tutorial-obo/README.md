@@ -16,12 +16,22 @@ Código em `src/samples/obo-tutorial/`:
 
 - Lab implantado (`scripts\deploy-aks.ps1` já executado com sucesso) e o
   arquivo de estado `.local\aks\deployment.local.json` presente.
-- Login no tenant do lab (perfil isolado, se você usa múltiplos tenants):
+- **Login prévio no Azure CLI, no tenant do lab** (perfil isolado, se você usa
+  múltiplos tenants). Os consoles do tutorial **não fazem login sozinhos** —
+  eles reaproveitam esta sessão via `AzureCliCredential`:
 
   ```powershell
   $env:AZURE_CONFIG_DIR = "$HOME\.azure-tenant-<tenantId>"
-  az login --tenant "<tenantId>" --allow-no-subscriptions --use-device-code
+  az login --tenant "<tenantId>" --allow-no-subscriptions
   ```
+
+  > **Por que não Device Code?** Em tenants com Conditional Access (acesso
+  > condicional) configurado, o fluxo de *device code* é comumente bloqueado
+  > (é mais difícil de amarrar a um dispositivo gerenciado/compliant). O
+  > `az login` comum (browser/broker) passa normalmente pelas políticas de CA
+  > e MFA. Por isso o tutorial usa `Azure.Identity.AzureCliCredential`, que
+  > obtém tokens a partir da sessão já autenticada do `az login`, sem abrir
+  > nenhum fluxo interativo dentro do próprio app .NET.
 
 - .NET SDK 8.0.
 - Um usuário de teste com conta no tenant (pode ser o próprio operador, se não
@@ -43,12 +53,30 @@ Os valores abaixo vêm de `.local\aks\deployment.local.json` (chaves `tenantId`,
      --scope "/subscriptions/<subscriptionId>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<keyVaultName>"
    ```
 
-2. **Habilitar fluxo de client público em `obo-api`** (permite o login via
-   *device code* no console, usando o próprio `obo-api` como client ID):
+2. **Pré-autorizar o Azure CLI em `obo-api`** (necessário porque o
+   `AzureCliCredential` pede o token usando o app first-party "Microsoft Azure
+   CLI", `04b07795-8ddb-461a-bbee-02f9e1bf7b46` — em tenants com consentimento
+   de usuário restrito, isso evita um `AADSTS65001` ao solicitar o escopo
+   `user_impersonation` de `obo-api`):
 
    ```powershell
-   az ad app update --id "<api-appId>" --is-fallback-public-client true
+   $body = @{
+     api = @{
+       preAuthorizedApplications = @(
+         @{
+           appId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
+           delegatedPermissionIds = @("<id-do-escopo-user_impersonation-de-obo-api>")
+         }
+       )
+     }
+   } | ConvertTo-Json -Depth 5
+   az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/<object-id-de-obo-api>" `
+     --headers "Content-Type=application/json" --body $body
    ```
+
+   > Este ajuste é **permanente** (não precisa ser revertido na limpeza): ele
+   > só autoriza o Azure CLI a solicitar, em nome do usuário logado, um token
+   > para `obo-api` — não concede nenhum acesso adicional por si só.
 
 3. **Criar um client secret temporário em `obo-api`** (necessário para o
    middle tier local fazer OBO como confidential client — localmente não há
@@ -85,12 +113,11 @@ cd src\samples\obo-tutorial\Step1.ConsoleLogin
 dotnet run -- <tenantId> <api-appId>
 ```
 
-O programa abre um fluxo de *device code*: acesse a URL indicada, digite o
-código e faça login como o usuário de teste. Saída esperada:
+O programa reaproveita a sessão já autenticada do `az login` (nenhuma
+interação é necessária aqui). Saída esperada:
 
 ```
-Fazendo login como o usuário de teste (Device Code)...
-To sign in, use a web browser to open the page https://login.microsoft.com/device and enter the code ABCD1234 to authenticate.
+Obtendo token via login existente do Azure CLI (az login)...
 
 Token adquirido com sucesso. Claims relevantes:
   aud: <api-appId>
@@ -184,8 +211,9 @@ Ao terminar de validar, reverta os ajustes temporários da Camada 0:
 az ad app credential list --id "<api-appId>" --query "[?displayName=='tutorial-obo-temp'].keyId" -o tsv
 az ad app credential delete --id "<api-appId>" --key-id "<keyId-retornado-acima>"
 
-# 2. Reverter isFallbackPublicClient (se a API não precisava disso antes)
-az ad app update --id "<api-appId>" --is-fallback-public-client false
+# 2. (Opcional) remover a pré-autorização do Azure CLI em obo-api, se você
+#    não pretende repetir este tutorial — não é necessário reverter, pois ela
+#    não concede acesso extra por si só (só evita o prompt de consentimento).
 
 # 3. Fechar o firewall do Key Vault
 az keyvault update --name "<keyVaultName>" --public-network-access Disabled

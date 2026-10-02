@@ -3,38 +3,54 @@
 // Não chama nenhum recurso protegido ainda — só prova que o hop usuário -> API
 // funciona com a configuração real do Entra ID.
 //
+// Reaproveita o login já feito via `az login` (AzureCliCredential), em vez de
+// abrir um fluxo de Device Code: tenants com Conditional Access costumam
+// bloquear o Device Code, mas o login interativo normal do Azure CLI
+// (navegador/broker) satisfaz MFA/CA normalmente.
+//
+// Pré-requisito: az login --tenant <tenantId> já executado (uma vez, na
+// sessão do terminal/perfil que você vai usar para rodar este console).
 // Uso: dotnet run -- <tenantId> <apiAppId>
 using System.IdentityModel.Tokens.Jwt;
-using Microsoft.Identity.Client;
+using Azure.Core;
+using Azure.Identity;
 
 if (args.Length < 2)
 {
     Console.WriteLine("Uso: dotnet run -- <tenantId> <apiAppId>");
     Console.WriteLine("Os valores do lab atual estão em .local\\aks\\deployment.local.json (tenantId, api.appId).");
+    Console.WriteLine("Pré-requisito: az login --tenant <tenantId> (uma vez) nesta mesma sessão/perfil.");
     return 1;
 }
 
 var tenantId = args[0];
 var apiAppId = args[1];
-var apiScope = $"api://{apiAppId}/user_impersonation";
+var apiScope = $"api://{apiAppId}/.default";
 
-// obo-api também atua como client aqui: é a mesma App Registration usada pela
-// API real, com "Allow public client flows" habilitado temporariamente para
-// permitir o fluxo Device Code (sem precisar de nenhuma app nova).
-var app = PublicClientApplicationBuilder.Create(apiAppId)
-    .WithTenantId(tenantId)
-    .Build();
+Console.WriteLine("Obtendo token via login existente do Azure CLI (az login)...");
+var credential = new AzureCliCredential(new AzureCliCredentialOptions { TenantId = tenantId });
 
-Console.WriteLine("Fazendo login como o usuário de teste (Device Code)...");
-var result = await app.AcquireTokenWithDeviceCode([apiScope], deviceCodeResult =>
+AccessToken token;
+try
 {
-    Console.WriteLine(deviceCodeResult.Message);
-    return Task.CompletedTask;
-}).ExecuteAsync();
+    token = await credential.GetTokenAsync(new TokenRequestContext([apiScope]));
+}
+catch (CredentialUnavailableException)
+{
+    Console.WriteLine("Nenhum login do Azure CLI encontrado para este tenant.");
+    Console.WriteLine($"Rode primeiro: az login --tenant {tenantId}");
+    return 1;
+}
+catch (AuthenticationFailedException ex)
+{
+    Console.WriteLine("Falha ao obter o token (ex.: usuário ainda não consentiu o escopo da API).");
+    Console.WriteLine(ex.Message);
+    return 1;
+}
 
 Console.WriteLine();
 Console.WriteLine("Token adquirido com sucesso. Claims relevantes:");
-var jwt = new JwtSecurityTokenHandler().ReadJwtToken(result.AccessToken);
+var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token.Token);
 foreach (var claimType in new[] { "aud", "scp", "tid", "oid", "upn", "preferred_username" })
 {
     var claim = jwt.Claims.FirstOrDefault(c => c.Type == claimType);
@@ -46,5 +62,5 @@ Console.WriteLine("Isso prova o 1o hop do OBO: o usuario recebeu um token delega
 Console.WriteLine("escopado para a API real do lab (aud = api appId, scp = user_impersonation).");
 Console.WriteLine();
 Console.WriteLine("Access token (para usar na Camada 2):");
-Console.WriteLine(result.AccessToken);
+Console.WriteLine(token.Token);
 return 0;

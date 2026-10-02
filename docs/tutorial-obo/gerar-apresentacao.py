@@ -195,7 +195,7 @@ def add_arrow_label(slide, text, left, top, width):
 top_row = Inches(2.2)
 box_h = Inches(1.1)
 add_box(slide, "Usuário de\nteste", Inches(0.7), top_row, Inches(2.2), box_h, fill=NAVY)
-add_arrow_label(slide, "Camada 1\ndevice code login\nhop 1: user_impersonation", Inches(2.95), top_row - Inches(0.15), Inches(2.6))
+add_arrow_label(slide, "Camada 1\nAzureCliCredential\nhop 1: user_impersonation", Inches(2.95), top_row - Inches(0.15), Inches(2.6))
 add_box(slide, "obo-api\n(Step1.ConsoleLogin\nreaproveita o appId)", Inches(5.6), top_row, Inches(2.6), box_h, fill=ACCENT)
 add_arrow_label(slide, "Camada 2\nOBO (Step2.MiddleTier)\nhop 2: vault.azure.net", Inches(8.25), top_row - Inches(0.15), Inches(2.6))
 add_box(slide, "Key Vault\nreal do lab\n(cmk-documents)", Inches(10.9), top_row, Inches(2.0), box_h, fill=RGBColor(0x3E, 0x8E, 0x41))
@@ -216,9 +216,10 @@ add_kicker(slide, "Antes de começar")
 add_title(slide, "Pré-requisitos")
 add_bullets(slide, [
     "Lab implantado (scripts\\deploy-aks.ps1 já executado) com .local\\aks\\deployment.local.json presente.",
-    "Login no tenant do lab, em um perfil isolado se você usa múltiplos tenants:",
+    "Login prévio no Azure CLI no tenant do lab (perfil isolado se você usa múltiplos tenants):",
     ('$env:AZURE_CONFIG_DIR = "$HOME\\.azure-tenant-<tenantId>"', 1),
-    ('az login --tenant "<tenantId>" --allow-no-subscriptions --use-device-code', 1),
+    ('az login --tenant "<tenantId>" --allow-no-subscriptions', 1),
+    "Os consoles reaproveitam essa sessão via AzureCliCredential (nenhum device code).",
     ".NET SDK 8.0 instalado.",
     "Um usuário de teste com conta no tenant (pode ser o próprio operador, se não houver conta de teste dedicada).",
 ])
@@ -233,12 +234,12 @@ add_kicker(slide, "Camada 0 — uma vez só")
 add_title(slide, "Preparação (ajustes temporários e reversíveis)")
 add_bullets(slide, [
     "1. Conceder ao usuário de teste a role Key Vault Crypto User no vault do lab.",
-    "2. Habilitar isFallbackPublicClient em obo-api (permite device code no console).",
+    "2. Pré-autorizar o Azure CLI (appId first-party) em obo-api (evita AADSTS65001 em tenants com consentimento restrito).",
     "3. Criar um client secret temporário em obo-api (necessário para o middle tier fazer OBO local).",
     "4. Abrir temporariamente o firewall do Key Vault para o seu IP — o vault do lab usa publicNetworkAccess=Disabled (só private endpoint).",
 ], size=19)
 add_bullets(slide, [
-    "Todos os quatro passos são documentados com o comando az exato e com o passo de rollback correspondente em docs/tutorial-obo/README.md.",
+    "Passos 1, 3 e 4 são temporários e reversíveis (ver Limpeza); o passo 2 é permanente e documentado com o comando az exato em docs/tutorial-obo/README.md.",
 ], top=Inches(5.9), height=Inches(1.0), size=16, color=RGBColor(0x60, 0x60, 0x60))
 add_footer(slide, "Tutorial incremental de OBO")
 
@@ -254,8 +255,8 @@ add_code_block(slide, [
     "dotnet run -- <tenantId> <api-appId>",
 ], top=Inches(1.7), height=Inches(1.1))
 add_bullets(slide, [
-    "Abre um fluxo de device code: acesse a URL indicada e faça login como o usuário de teste.",
-    "Solicita um token para api://<api-appId>/user_impersonation.",
+    "Reaproveita a sessão já autenticada do az login via AzureCliCredential — nenhuma interação aqui.",
+    "Solicita um token para api://<api-appId>/.default (formato exigido pelo AzureCliCredential).",
     "Decodifica e imprime as claims do token: aud, scp, tid, oid, upn.",
     "Não chama nenhum recurso protegido ainda — só prova que o 1º hop funciona.",
 ], top=Inches(3.1), height=Inches(2.2))
@@ -269,9 +270,7 @@ set_background(slide, RGBColor(0xFF, 0xFF, 0xFF))
 add_kicker(slide, "Camada 1")
 add_title(slide, "Saída esperada")
 add_code_block(slide, [
-    "Fazendo login como o usuário de teste (Device Code)...",
-    "To sign in, use a web browser to open the page",
-    "https://login.microsoft.com/device and enter the code ABCD1234",
+    "Obtendo token via login existente do Azure CLI (az login)...",
     "",
     "Token adquirido com sucesso. Claims relevantes:",
     "  aud: <api-appId>",
@@ -399,7 +398,7 @@ add_kicker(slide, "Ao terminar")
 add_title(slide, "Limpeza dos ajustes temporários")
 add_bullets(slide, [
     "Remover o client secret temporário de obo-api (az ad app credential delete).",
-    "Reverter isFallbackPublicClient para false, se a API não precisava disso antes.",
+    "Manter a pré-autorização do Azure CLI em obo-api (permanente — não concede acesso extra por si só).",
     "Fechar o firewall do Key Vault (publicNetworkAccess=Disabled, remover a network-rule).",
     "Remover a role Key Vault Crypto User do usuário de teste, se ele não precisar continuar com acesso.",
     "Limpar os dotnet user-secrets do Step2.MiddleTier (dotnet user-secrets clear).",
