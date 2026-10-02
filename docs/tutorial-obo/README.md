@@ -5,6 +5,12 @@ de código possível, rodando 100% local (`dotnet run`, sem container/cluster).
 Reaproveita as App Registrations reais do lab (`obo-api`) em vez de criar
 aplicações dedicadas ao tutorial.
 
+> **Vai entregar isso para o cliente executar sozinho?** Use
+> [`GUIA-CLIENTE.md`](./GUIA-CLIENTE.md) — versão enxuta, com checklist de
+> valores a preencher e tabela de troubleshooting, sem jargão interno do lab.
+> Este README aqui é a referência completa, com explicações técnicas e
+> mapeamento para o código real.
+
 Código em `src/samples/obo-tutorial/`:
 
 - `Step1.ConsoleLogin/` — Camada 1: login do usuário + 1o hop (usuário → API).
